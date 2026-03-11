@@ -4,7 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from tvm.cochl.framework.ncnn.codegen.sources import NCNN_TO_STANDALONE
+from tvm.cochl.framework.ncnn.codegen.ncnn_path import NCNN_TO_STANDALONE
 
 
 def emit_metadata(output_dir: Path, matched: list[str], unmatched: list[str]) -> None:

@@ -9,6 +9,7 @@ from typing import Dict, Iterable, List, Tuple
 import tvm
 from tvm.cochl.framework.relax.standalone_packer import match_relax_const_idx
 from tvm.cochl.framework.ncnn.kernel.op_packer import infer_ncnn_function_name
+from . import sources
 
 from tvm.cochl.framework.ncnn.codegen.helpers import as_pattern_entry
 from tvm.cochl.framework.ncnn.codegen.match import call_extern_symbol
@@ -16,6 +17,50 @@ from tvm.cochl.framework.ncnn.codegen.match import call_extern_symbol
 
 def _normalize_func(name: str) -> str:
     return re.sub(r"\d+$", "", name)
+
+
+def _indent_block(text: str, indent: str = "    ") -> list[str]:
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    return [f"{indent}{line}" for line in lines]
+
+
+def _render_entry_source(
+    entry_path: Path,
+    model_name: str,
+    proto_block: str,
+    storage_block: str,
+    input_shape,
+    output_shape,
+    num_buffers: int,
+    total_storage_mb: float,
+    op_count: int,
+    calls: str,
+    output_src: str,
+    output_elems_calc: int,
+    dump_ir_tensor_data: bool = False,
+    trace_operator_delay: bool = False,
+) -> None:
+    code = sources.generate_header(proto_block)
+    code += sources.generate_storage_section(storage_block)
+    code += sources.generate_runtime_helpers()
+    code += sources.generate_debug_helpers(
+        dump_ir_tensor_data=dump_ir_tensor_data,
+        trace_operator_delay=trace_operator_delay,
+    )
+    code += sources.generate_file_size_helper()
+    code += sources.generate_inference_function(
+        model_name=model_name,
+        input_shape=input_shape,
+        output_shape=output_shape,
+        num_buffers=num_buffers,
+        total_storage_mb=total_storage_mb,
+        op_count=op_count,
+        calls=calls,
+        output_src=output_src,
+        output_elems_calc=output_elems_calc,
+    )
+    code += sources.generate_main_function(model_name, output_elems_calc)
+    entry_path.write_text(code, encoding="utf-8")
 
 
 def _expected_base(entry: dict) -> str | None:
@@ -173,6 +218,8 @@ def emit_main_entry_from_plan(
     ncnn_entries: List[dict],
     weights_json: Path,
     align_log: Path | None = None,
+    dump_ir_tensor_data: bool = False,
+    trace_operator_delay: bool = False,
 ) -> None:
     match_map, skipped = _align_map(ncnn_entries, plan)
     if align_log is not None:
@@ -947,588 +994,64 @@ def emit_main_entry_from_plan(
         in_n, in_c, in_h, in_w = (int(in_shape[0]), int(in_shape[1]), int(in_shape[2]), int(in_shape[3])) if len(in_shape) >= 4 else (1, 1, 1, 1)
         out_n, out_c, out_h, out_w = (int(out_shape[0]), int(out_shape[1]), int(out_shape[2]), int(out_shape[3])) if len(out_shape) >= 4 else (1, 1, 1, 1)
 
+        if debug_calls:
+            debug_calls.append("")
         debug_calls.append(f"    // op {idx}: {op_label}")
-        debug_calls.append("    {")
-        op_mode = "fallback" if kind.startswith("fallback") else "ncnn"
-        debug_calls.append("        if (op_labels) {")
-        debug_calls.append(f"            op_labels[{idx}] = \"{op_label}\";")
-        debug_calls.append("        }")
-        debug_calls.append("        if (op_modes) {")
-        debug_calls.append(f"            op_modes[{idx}] = \"{op_mode}\";")
-        debug_calls.append("        }")
-        debug_calls.append("        if (tensor_f) {")
-        debug_calls.append(f"            fprintf(tensor_f, \"op {idx} {op_label} input\\n\");")
-        if in_pack == 4:
-            debug_calls.append(f"            pack4_to_pack1({in_ptr}, g_pack_tmp2, {in_n}, {in_c}, {in_h}, {in_w});")
-            debug_calls.append(f"            dump_tensor(tensor_f, \"a\", g_pack_tmp2, {in_elems_use}, 64);")
-        else:
-            debug_calls.append(f"            dump_tensor(tensor_f, \"a\", {in_ptr}, {in_elems_use}, 64);")
-        debug_calls.append("        }")
-        debug_calls.append("        auto t0 = std::chrono::high_resolution_clock::now();")
-        debug_calls.append(f"        {raw_call.strip()}")
-        debug_calls.append("        auto t1 = std::chrono::high_resolution_clock::now();")
-        debug_calls.append("        double ms = std::chrono::duration<double, std::milli>(t1 - t0).count();")
-        debug_calls.append(f"        if (op_ms) op_ms[{idx}] += ms;")
-        debug_calls.append("        if (tensor_f) {")
-        debug_calls.append(f"            fprintf(tensor_f, \"op {idx} {op_label} output\\n\");")
-        if out_pack == 4:
-            debug_calls.append(f"            pack4_to_pack1({out_ptr}, g_pack_tmp2, {out_n}, {out_c}, {out_h}, {out_w});")
-            debug_calls.append(f"            dump_tensor(tensor_f, \"c\", g_pack_tmp2, {out_elems_use}, 64);")
-        else:
-            debug_calls.append(f"            dump_tensor(tensor_f, \"c\", {out_ptr}, {out_elems_use}, 64);")
-        debug_calls.append("            fflush(tensor_f);")
-        debug_calls.append("        }")
-        debug_calls.append("    }")
+        if dump_ir_tensor_data:
+            if in_pack == 4:
+                debug_calls.append(f"    pack4_to_pack1({in_ptr}, g_pack_tmp2, {in_n}, {in_c}, {in_h}, {in_w});")
+                debug_calls.append(f"    dump_tensor_data(\"Op{idx + 1}: input ({op_label})\", g_pack_tmp2, {in_elems_use}, 64);")
+            else:
+                debug_calls.append(f"    dump_tensor_data(\"Op{idx + 1}: input ({op_label})\", {in_ptr}, {in_elems_use}, 64);")
+        if trace_operator_delay:
+            debug_calls.append(f"    clock_t op_start_{idx} = clock();")
+        debug_calls.extend(_indent_block(raw_call))
+        if trace_operator_delay:
+            debug_calls.append(f"    trace_operator_delay(\"Op{idx + 1}: {op_label}\", op_start_{idx}, clock());")
+        if dump_ir_tensor_data:
+            if out_pack == 4:
+                debug_calls.append(f"    pack4_to_pack1({out_ptr}, g_pack_tmp2, {out_n}, {out_c}, {out_h}, {out_w});")
+                debug_calls.append(f"    dump_tensor_data(\"Op{idx + 1}: output ({op_label})\", g_pack_tmp2, {out_elems_use}, 64);")
+            else:
+                debug_calls.append(f"    dump_tensor_data(\"Op{idx + 1}: output ({op_label})\", {out_ptr}, {out_elems_use}, 64);")
 
     calls = "\n".join(debug_calls) if debug_calls else "    (void)a;"
     proto_block = "\n".join(sorted(set(proto_lines)))
     storage_block = "\n".join(storage_decls)
-
-    helper_defs = """
-__attribute__((noinline))
-#if defined(__clang__)
-__attribute__((optnone))
-#endif
-static void reshape_copy(const float* in, float* out, long size)
-{
-    if (!in || !out || in == out || size <= 0)
-        return;
-    volatile const float* vin = in;
-    volatile float* vout = out;
-    if (out < in)
-    {
-        for (long i = 0; i < size; ++i)
-            vout[i] = vin[i];
-    }
-    else
-    {
-        for (long i = size; i-- > 0;)
-            vout[i] = vin[i];
-    }
-}
-
-static void max_f32(const float* a, const float* b, float* out, long size, int b_scalar)
-{
-    if (!a || !out || size <= 0)
-        return;
-    if (b_scalar)
-    {
-        float s = b ? b[0] : 0.0f;
-        for (long i = 0; i < size; ++i)
-            out[i] = a[i] > s ? a[i] : s;
-    }
-    else
-    {
-        for (long i = 0; i < size; ++i)
-            out[i] = a[i] > b[i] ? a[i] : b[i];
-    }
-}
-
-static void min_f32(const float* a, const float* b, float* out, long size, int b_scalar)
-{
-    if (!a || !out || size <= 0)
-        return;
-    if (b_scalar)
-    {
-        float s = b ? b[0] : 0.0f;
-        for (long i = 0; i < size; ++i)
-            out[i] = a[i] < s ? a[i] : s;
-    }
-    else
-    {
-        for (long i = 0; i < size; ++i)
-            out[i] = a[i] < b[i] ? a[i] : b[i];
-    }
-}
-
-static void add_channel_bias_pack4(const float* a, const float* b, float* out, int n, int c, int h, int w)
-{
-    if (!a || !out || !b || n <= 0 || c <= 0 || h <= 0 || w <= 0)
-        return;
-    int c4 = c / 4;
-    int hw = h * w;
-    for (int ni = 0; ni < n; ++ni)
-    {
-        for (int ci = 0; ci < c4; ++ci)
-        {
-            const float* bias = b + ci * 4;
-            long base = ((long)ni * c4 + ci) * hw * 4;
-            for (int i = 0; i < hw; ++i)
-            {
-                float* outp = out + base + i * 4;
-                const float* ap = a + base + i * 4;
-                outp[0] = ap[0] + bias[0];
-                outp[1] = ap[1] + bias[1];
-                outp[2] = ap[2] + bias[2];
-                outp[3] = ap[3] + bias[3];
-            }
-        }
-    }
-}
-
-static void concat_last_axis(const float** inputs, int num_inputs, float* output, int n, int h, int w, int c_each)
-{
-    if (!inputs || !output || num_inputs <= 0 || c_each <= 0)
-        return;
-    int c_total = num_inputs * c_each;
-    for (int ni = 0; ni < n; ++ni)
-    {
-        for (int hi = 0; hi < h; ++hi)
-        {
-            for (int wi = 0; wi < w; ++wi)
-            {
-                long base_out = (((long)ni * h + hi) * w + wi) * c_total;
-                for (int in_idx = 0; in_idx < num_inputs; ++in_idx)
-                {
-                    const float* in = inputs[in_idx];
-                    if (!in) continue;
-                    long base_in = (((long)ni * h + hi) * w + wi) * c_each;
-                    for (int ci = 0; ci < c_each; ++ci)
-                    {
-                        output[base_out + in_idx * c_each + ci] = in[base_in + ci];
-                    }
-                }
-            }
-        }
-    }
-}
-
-static void pack1_to_pack4(const float* input, float* output, int n, int c, int h, int w)
-{
-    if (!input || !output || c <= 0)
-        return;
-    int c4 = c / 4;
-    for (int ni = 0; ni < n; ++ni)
-    {
-        for (int ci = 0; ci < c; ++ci)
-        {
-            int c4i = ci / 4;
-            int lane = ci % 4;
-            for (int hi = 0; hi < h; ++hi)
-            {
-                for (int wi = 0; wi < w; ++wi)
-                {
-                    long in_idx = ((long)ni * c + ci) * h * w + (long)hi * w + wi;
-                    long out_idx = ((((long)ni * c4 + c4i) * h + hi) * w + wi) * 4 + lane;
-                    output[out_idx] = input[in_idx];
-                }
-            }
-        }
-    }
-}
-
-static void pack4_to_pack1(const float* input, float* output, int n, int c, int h, int w)
-{
-    if (!input || !output || c <= 0)
-        return;
-    int c4 = c / 4;
-    for (int ni = 0; ni < n; ++ni)
-    {
-        for (int ci = 0; ci < c; ++ci)
-        {
-            int c4i = ci / 4;
-            int lane = ci % 4;
-            for (int hi = 0; hi < h; ++hi)
-            {
-                for (int wi = 0; wi < w; ++wi)
-                {
-                    long out_idx = ((long)ni * c + ci) * h * w + (long)hi * w + wi;
-                    long in_idx = ((((long)ni * c4 + c4i) * h + hi) * w + wi) * 4 + lane;
-                    output[out_idx] = input[in_idx];
-                }
-            }
-        }
-    }
-}
-
-static void mul_scalar(const float* in, float* out, long size, float s)
-{
-    if (!in || !out || size <= 0)
-        return;
-    for (long i = 0; i < size; ++i)
-        out[i] = in[i] * s;
-}
-
-static void add_channel_bias(const float* a, const float* b, float* out, int n, int c, int inner)
-{
-    if (!a || !b || !out || n <= 0 || c <= 0 || inner <= 0)
-        return;
-    for (int ni = 0; ni < n; ++ni)
-    {
-        for (int ci = 0; ci < c; ++ci)
-        {
-            float bias = b[ci];
-            const float* ap = a + (size_t)(ni * c + ci) * inner;
-            float* op = out + (size_t)(ni * c + ci) * inner;
-            for (int i = 0; i < inner; ++i)
-            {
-                op[i] = ap[i] + bias;
-            }
-        }
-    }
-}
-
-static void conv3x3_pack1(const float* input,
-                          const float* weight,
-                          float* output,
-                          int in_c,
-                          int in_h,
-                          int in_w,
-                          int out_c,
-                          int out_h,
-                          int out_w,
-                          int stride,
-                          int pad_top,
-                          int pad_left,
-                          int pad_bottom,
-                          int pad_right)
-{
-    if (!input || !weight || !output)
-        return;
-    for (int oc = 0; oc < out_c; ++oc)
-    {
-        for (int oh = 0; oh < out_h; ++oh)
-        {
-            for (int ow = 0; ow < out_w; ++ow)
-            {
-                float sum = 0.0f;
-                for (int ic = 0; ic < in_c; ++ic)
-                {
-                    int ih0 = oh * stride - pad_top;
-                    int iw0 = ow * stride - pad_left;
-                    const float* in_ptr = input + (ic * in_h * in_w);
-                    const float* w_ptr = weight + ((oc * in_c + ic) * 9);
-                    for (int kh = 0; kh < 3; ++kh)
-                    {
-                        int ih = ih0 + kh;
-                        if (ih < 0 || ih >= in_h) continue;
-                        for (int kw = 0; kw < 3; ++kw)
-                        {
-                            int iw = iw0 + kw;
-                            if (iw < 0 || iw >= in_w) continue;
-                            float v = in_ptr[ih * in_w + iw];
-                            sum += v * w_ptr[kh * 3 + kw];
-                        }
-                    }
-                }
-                output[(oc * out_h + oh) * out_w + ow] = sum;
-            }
-        }
-    }
-}
-
-static void depthwise3x3_pack1(const float* input,
-                               const float* weight,
-                               float* output,
-                               int c,
-                               int in_h,
-                               int in_w,
-                               int out_h,
-                               int out_w,
-                               int stride,
-                               int pad_top,
-                               int pad_left,
-                               int pad_bottom,
-                               int pad_right)
-{
-    if (!input || !weight || !output)
-        return;
-    for (int ic = 0; ic < c; ++ic)
-    {
-        const float* in_base = input + (ic * in_h * in_w);
-        const float* w_ptr = weight + (ic * 9);
-        float* out_base = output + (ic * out_h * out_w);
-        for (int oh = 0; oh < out_h; ++oh)
-        {
-            for (int ow = 0; ow < out_w; ++ow)
-            {
-                float sum = 0.0f;
-                int ih0 = oh * stride - pad_top;
-                int iw0 = ow * stride - pad_left;
-                for (int kh = 0; kh < 3; ++kh)
-                {
-                    int ih = ih0 + kh;
-                    if (ih < 0 || ih >= in_h) continue;
-                    for (int kw = 0; kw < 3; ++kw)
-                    {
-                        int iw = iw0 + kw;
-                        if (iw < 0 || iw >= in_w) continue;
-                        float v = in_base[ih * in_w + iw];
-                        sum += v * w_ptr[kh * 3 + kw];
-                    }
-                }
-                out_base[oh * out_w + ow] = sum;
-            }
-        }
-    }
-}
-
-static void conv1x1_pack1(const float* input,
-                          const float* weight,
-                          float* output,
-                          int in_c,
-                          int in_h,
-                          int in_w,
-                          int out_c,
-                          int out_h,
-                          int out_w)
-{
-    if (!input || !weight || !output)
-        return;
-    for (int oc = 0; oc < out_c; ++oc)
-    {
-        const float* w_ptr = weight + oc * in_c;
-        float* out_base = output + oc * out_h * out_w;
-        for (int oh = 0; oh < out_h; ++oh)
-        {
-            for (int ow = 0; ow < out_w; ++ow)
-            {
-                float sum = 0.0f;
-                const float* in_ptr = input + (oh * in_w + ow);
-                for (int ic = 0; ic < in_c; ++ic)
-                {
-                    sum += in_ptr[ic * in_h * in_w] * w_ptr[ic];
-                }
-                out_base[oh * out_w + ow] = sum;
-            }
-        }
-    }
-}
-"""
-
-    entry_code = f"""// SPDX-License-Identifier: Apache-2.0
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <chrono>
-#include <sys/stat.h>
-#include \"ncnn.h\"
-
-{proto_block}
-
-{storage_block}
-
-{helper_defs}
-
-static long file_size(FILE* f)
-{{
-    fseek(f, 0, SEEK_END);
-    long size = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    return size;
-}}
-
-static void dump_tensor(FILE* f, const char* name, const float* ptr, long count, long limit)
-{{
-    if (!f) return;
-    fprintf(f, \"  tensor %s count=%ld\\n\", name, count);
-    if (!ptr || count <= 0)
-    {{
-        fprintf(f, \"    (null)\\n\");
-        return;
-    }}
-    long n = count < limit ? count : limit;
-    float minv = ptr[0];
-    float maxv = ptr[0];
-    double sum = 0.0;
-    for (long i = 0; i < count; ++i)
-    {{
-        float v = ptr[i];
-        if (v < minv) minv = v;
-        if (v > maxv) maxv = v;
-        sum += v;
-    }}
-    fprintf(f, \"    stats min=%g max=%g mean=%g\\n\", minv, maxv, (float)(sum / (double)count));
-    fprintf(f, \"    data[0:%ld] =\", n);
-    for (long i = 0; i < n; ++i)
-    {{
-        fprintf(f, \" %g\", ptr[i]);
-    }}
-    fprintf(f, \"\\n\");
-}}
-
-int main(int argc, char** argv)
-{{
-    const char* input_path = (argc > 1) ? argv[1] : \"input.bin\";
-    const char* output_path = (argc > 2) ? argv[2] : \"output.bin\";
-    long output_elems = (argc > 3) ? atol(argv[3]) : {output_elems_calc};
-    const char* weights_path = (argc > 4) ? argv[4] : \"weights.bin\";
-
-    FILE* wf = fopen(weights_path, \"rb\");
-    if (!wf) {{
-        fprintf(stderr, \"failed to open %s\\n\", weights_path);
-        return 1;
-    }}
-    long wsize = file_size(wf);
-    unsigned char* wbuf = (unsigned char*)malloc(wsize);
-    if (!wbuf) {{
-        fprintf(stderr, \"malloc failed\\n\");
-        fclose(wf);
-        return 2;
-    }}
-    size_t wread = fread(wbuf, 1, wsize, wf);
-    fclose(wf);
-    printf(\"Loaded weights: %ld bytes (read %zu)\\n\", wsize, wread);
-    float* g_weights = (float*)wbuf;
-
-    FILE* inf = fopen(input_path, \"rb\");
-    if (!inf) {{
-        fprintf(stderr, \"failed to open %s\\n\", input_path);
-        free(wbuf);
-        return 3;
-    }}
-    long in_size = file_size(inf);
-    float* input = (float*)malloc(in_size);
-    if (!input) {{
-        fprintf(stderr, \"malloc failed\\n\");
-        fclose(inf);
-        free(wbuf);
-        return 4;
-    }}
-    size_t in_read = fread(input, 1, in_size, inf);
-    fclose(inf);
-    printf(\"Loaded input: %ld bytes (read %zu)\\n\", in_size, in_read);
-
-    float* output = NULL;
-    if (output_elems > 0) {{
-        output = (float*)malloc((size_t)output_elems * sizeof(float));
-        if (!output) {{
-            fprintf(stderr, \"malloc failed\\n\");
-            free(input);
-            free(wbuf);
-            return 5;
-        }}
-        memset(output, 0, (size_t)output_elems * sizeof(float));
-        long in_elems2 = in_size / (long)sizeof(float);
-        long copy_elems = in_elems2 < output_elems ? in_elems2 : output_elems;
-        if (copy_elems > 0) {{
-            memcpy(output, input, (size_t)copy_elems * sizeof(float));
-        }}
-    }}
-
-    float scalar_zero = 0.0f;
-    float scalar_six = 6.0f;
-
-    float* a = input;
-    float* b = input;
-    float* c = output ? output : input;
-    float* d = input;
-    float* w = input;
-    int shape[4] = {{1, 1, 1, 1}};
-    int axes[1] = {{0}};
-    int perm[4] = {{0, 1, 2, 3}};
-    long in_elems = in_size / (long)sizeof(float);
-    long out_elems_use = output ? output_elems : in_elems;
-    const float* output_src = {output_src if output_src else "NULL"};
-    long output_elems_calc = {output_elems_calc};
-
-    // metadata outputs
-    mkdir(\"metadata\", 0755);
-    FILE* timing_f = fopen(\"metadata/op_delay.txt\", \"w\");
-    FILE* tensor_f = NULL;
-    const char* dump_env = getenv(\"COCHL_DUMP_TENSOR\");
-    if (dump_env && dump_env[0] == '1') {{
-        tensor_f = fopen(\"metadata/op_tensor.txt\", \"w\");
-    }}
-    const int op_count = {len(op_lines)};
-    double* op_ms = op_count > 0 ? (double*)malloc(sizeof(double) * (size_t)op_count) : NULL;
-    const char** op_labels = op_count > 0 ? (const char**)malloc(sizeof(char*) * (size_t)op_count) : NULL;
-    const char** op_modes = op_count > 0 ? (const char**)malloc(sizeof(char*) * (size_t)op_count) : NULL;
-    if (op_ms) {{
-        for (int i = 0; i < op_count; ++i) op_ms[i] = 0.0;
-    }}
-    if (op_labels) {{
-        for (int i = 0; i < op_count; ++i) op_labels[i] = NULL;
-    }}
-    if (op_modes) {{
-        for (int i = 0; i < op_count; ++i) op_modes[i] = NULL;
-    }}
-    const int warmup = 3;
-    const int runs = 5;
-    for (int i = 0; i < warmup; ++i)
-    {{
-{calls}
-    }}
-    double infer_sum = 0.0;
-    for (int i = 0; i < runs; ++i)
-    {{
-        auto infer_t0 = std::chrono::high_resolution_clock::now();
-{calls}
-        auto infer_t1 = std::chrono::high_resolution_clock::now();
-        infer_sum += std::chrono::duration<double, std::milli>(infer_t1 - infer_t0).count();
-    }}
-    double infer_ms = infer_sum / runs;
-
-    if (timing_f && op_count > 0 && op_ms && op_labels)
-    {{
-        fprintf(timing_f, \"inference_total %.6f ms\\n\", infer_ms);
-        // stable sort indices by descending time
-        int* idx = (int*)malloc(sizeof(int) * (size_t)op_count);
-        for (int i = 0; i < op_count; ++i) idx[i] = i;
-        for (int i = 0; i < op_count; ++i)
-        {{
-            for (int j = i + 1; j < op_count; ++j)
-            {{
-                if (op_ms[idx[j]] > op_ms[idx[i]])
-                {{
-                    int tmp = idx[i];
-                    idx[i] = idx[j];
-                    idx[j] = tmp;
-                }}
-            }}
-        }}
-        for (int i = 0; i < op_count; ++i)
-        {{
-            int k = idx[i];
-            const char* label = op_labels[k] ? op_labels[k] : \"unknown\";
-            const char* mode = op_modes && op_modes[k] ? op_modes[k] : \"unknown\";
-            fprintf(timing_f, \"op %d %s %s %.6f ms\\n\", k, mode, label, op_ms[k] / (double)runs);
-        }}
-        free(idx);
-    }}
-
-    if (output && output_elems > 0)
-    {{
-        if (output_src)
-        {{
-            long copy_elems = output_elems;
-            if (output_elems_calc > 0 && output_elems_calc < copy_elems)
-                copy_elems = output_elems_calc;
-            memcpy(output, output_src, (size_t)copy_elems * sizeof(float));
-        }}
-        FILE* outf = fopen(output_path, \"wb\");
-        if (!outf) {{
-            fprintf(stderr, \"failed to open %s\\n\", output_path);
-        }} else {{
-            fwrite(output, sizeof(float), (size_t)output_elems, outf);
-            fclose(outf);
-        }}
-    }}
-
-    free(output);
-    free(input);
-    free(wbuf);
-    if (timing_f) fclose(timing_f);
-    if (tensor_f) fclose(tensor_f);
-    return 0;
-}}
-"""
-    entry_path.write_text(entry_code, encoding="utf-8")
-
+    input_shape = tensor_shape(input_var) if input_var else ()
+    final_output_shape = tensor_shape(plan.operations[-1].output_var) if plan.operations else ()
+    num_buffers = len(storage_sizes) + (2 if max_elems > 0 else 0)
+    total_storage_mb = (
+        sum(size for size in storage_sizes if size > 0) + (max_elems * 4 * 2 if max_elems > 0 else 0)
+    ) / (1024 * 1024)
+    _render_entry_source(
+        entry_path=entry_path,
+        model_name=entry_path.stem,
+        proto_block=proto_block,
+        storage_block=storage_block,
+        input_shape=input_shape,
+        output_shape=final_output_shape or (),
+        num_buffers=num_buffers,
+        total_storage_mb=total_storage_mb,
+        op_count=len(op_lines),
+        calls=calls,
+        output_src=output_src if output_src else "NULL",
+        output_elems_calc=output_elems_calc,
+        dump_ir_tensor_data=dump_ir_tensor_data,
+        trace_operator_delay=trace_operator_delay,
+    )
 
 # SPDX-License-Identifier: Apache-2.0
 # Legacy entrygen (kept for compatibility)
 
-from pathlib import Path
-from typing import Iterable
 
-from tvm.cochl.framework.ncnn.kernel.op_packer import infer_ncnn_function_name
-
-from tvm.cochl.framework.ncnn.codegen.helpers import as_pattern_entry
-from tvm.cochl.framework.ncnn.codegen.match import call_extern_symbol
-
-
-def emit_main_entry(entry_path: Path, pattern_entries: Iterable[dict]) -> None:
+def emit_main_entry(
+    entry_path: Path,
+    pattern_entries: Iterable[dict],
+    dump_ir_tensor_data: bool = False,
+    trace_operator_delay: bool = False,
+) -> None:
+    output_elems_calc = 1
     call_lines = []
     proto_lines = []
     op_lines = []
@@ -1592,234 +1115,37 @@ def emit_main_entry(entry_path: Path, pattern_entries: Iterable[dict]) -> None:
 
     debug_calls = []
     for idx, ((symbol, kind, op_label), raw_call) in enumerate(zip(op_lines, call_lines)):
+        if debug_calls:
+            debug_calls.append("")
         debug_calls.append(f"    // op {idx}: {op_label}")
-        debug_calls.append("    {")
-        op_mode = "fallback" if kind.startswith("fallback") else "ncnn"
-        debug_calls.append("        if (op_labels) {")
-        debug_calls.append(f"            op_labels[{idx}] = \"{op_label}\";")
-        debug_calls.append("        }")
-        debug_calls.append("        if (op_modes) {")
-        debug_calls.append(f"            op_modes[{idx}] = \"{op_mode}\";")
-        debug_calls.append("        }")
-        debug_calls.append("        if (tensor_f) {")
-        debug_calls.append(f"            fprintf(tensor_f, \"op {idx} {op_label} input\\n\");")
-        debug_calls.append("            dump_tensor(tensor_f, \"a\", a, in_elems, 64);")
-        debug_calls.append("        }")
-        debug_calls.append("        auto t0 = std::chrono::high_resolution_clock::now();")
-        debug_calls.append(f"        {raw_call.strip()}")
-        debug_calls.append("        auto t1 = std::chrono::high_resolution_clock::now();")
-        debug_calls.append("        double ms = std::chrono::duration<double, std::milli>(t1 - t0).count();")
-        debug_calls.append(f"        if (op_ms) op_ms[{idx}] += ms;")
-        debug_calls.append("        if (tensor_f) {")
-        debug_calls.append(f"            fprintf(tensor_f, \"op {idx} {op_label} output\\n\");")
-        debug_calls.append("            dump_tensor(tensor_f, \"c\", c, out_elems_use, 64);")
-        debug_calls.append("            fflush(tensor_f);")
-        debug_calls.append("        }")
-        debug_calls.append("    }")
+        if dump_ir_tensor_data:
+            debug_calls.append(f"    dump_tensor_data(\"Op{idx + 1}: input ({op_label})\", a, in_elems, 64);")
+        if trace_operator_delay:
+            debug_calls.append(f"    clock_t op_start_{idx} = clock();")
+        debug_calls.extend(_indent_block(raw_call))
+        if trace_operator_delay:
+            debug_calls.append(f"    trace_operator_delay(\"Op{idx + 1}: {op_label}\", op_start_{idx}, clock());")
+        if dump_ir_tensor_data:
+            debug_calls.append(f"    dump_tensor_data(\"Op{idx + 1}: output ({op_label})\", c, out_elems_use, 64);")
 
     calls = "\n".join(debug_calls) if debug_calls else "    (void)a;"
     proto_block = "\n".join(sorted(set(proto_lines)))
-    entry_code = f"""// SPDX-License-Identifier: Apache-2.0
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <chrono>
-#include <sys/stat.h>
-#include \"ncnn.h\"
-
-{proto_block}
-
-static long file_size(FILE* f)
-{{
-    fseek(f, 0, SEEK_END);
-    long size = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    return size;
-}}
-
-static void dump_tensor(FILE* f, const char* name, const float* ptr, long count, long limit)
-{{
-    if (!f) return;
-    fprintf(f, \"  tensor %s count=%ld\\n\", name, count);
-    if (!ptr || count <= 0)
-    {{
-        fprintf(f, \"    (null)\\n\");
-        return;
-    }}
-    long n = count < limit ? count : limit;
-    float minv = ptr[0];
-    float maxv = ptr[0];
-    double sum = 0.0;
-    for (long i = 0; i < count; ++i)
-    {{
-        float v = ptr[i];
-        if (v < minv) minv = v;
-        if (v > maxv) maxv = v;
-        sum += v;
-    }}
-    fprintf(f, \"    stats min=%g max=%g mean=%g\\n\", minv, maxv, (float)(sum / (double)count));
-    fprintf(f, \"    data[0:%ld] =\", n);
-    for (long i = 0; i < n; ++i)
-    {{
-        fprintf(f, \" %g\", ptr[i]);
-    }}
-    fprintf(f, \"\\n\");
-}}
-
-int main(int argc, char** argv)
-{{
-    const char* input_path = (argc > 1) ? argv[1] : \"input.bin\";
-    const char* output_path = (argc > 2) ? argv[2] : \"output.bin\";
-    long output_elems = (argc > 3) ? atol(argv[3]) : {output_elems_calc};
-    const char* weights_path = (argc > 4) ? argv[4] : \"weights.bin\";
-
-    FILE* wf = fopen(weights_path, \"rb\");
-    if (!wf) {{
-        fprintf(stderr, \"failed to open %s\\n\", weights_path);
-        return 1;
-    }}
-    long wsize = file_size(wf);
-    unsigned char* wbuf = (unsigned char*)malloc(wsize);
-    if (!wbuf) {{
-        fprintf(stderr, \"malloc failed\\n\");
-        fclose(wf);
-        return 2;
-    }}
-    size_t wread = fread(wbuf, 1, wsize, wf);
-    fclose(wf);
-    printf(\"Loaded weights: %ld bytes (read %zu)\\n\", wsize, wread);
-
-    FILE* inf = fopen(input_path, \"rb\");
-    if (!inf) {{
-        fprintf(stderr, \"failed to open %s\\n\", input_path);
-        free(wbuf);
-        return 3;
-    }}
-    long in_size = file_size(inf);
-    float* input = (float*)malloc(in_size);
-    if (!input) {{
-        fprintf(stderr, \"malloc failed\\n\");
-        fclose(inf);
-        free(wbuf);
-        return 4;
-    }}
-    size_t in_read = fread(input, 1, in_size, inf);
-    fclose(inf);
-    printf(\"Loaded input: %ld bytes (read %zu)\\n\", in_size, in_read);
-
-    float* output = NULL;
-    if (output_elems > 0) {{
-        output = (float*)malloc((size_t)output_elems * sizeof(float));
-        if (!output) {{
-            fprintf(stderr, \"malloc failed\\n\");
-            free(input);
-            free(wbuf);
-            return 5;
-        }}
-        memset(output, 0, (size_t)output_elems * sizeof(float));
-        long in_elems2 = in_size / (long)sizeof(float);
-        long copy_elems = in_elems2 < output_elems ? in_elems2 : output_elems;
-        if (copy_elems > 0) {{
-            memcpy(output, input, (size_t)copy_elems * sizeof(float));
-        }}
-    }}
-
-    float* a = input;
-    float* b = input;
-    float* c = output ? output : input;
-    float* d = input;
-    float* w = input;
-    int shape[4] = {{1, 1, 1, 1}};
-    int axes[1] = {{0}};
-    int perm[4] = {{0, 1, 2, 3}};
-    long in_elems = in_size / (long)sizeof(float);
-    long out_elems_use = output ? output_elems : in_elems;
-
-    // metadata outputs
-    mkdir(\"metadata\", 0755);
-    FILE* timing_f = fopen(\"metadata/op_delay.txt\", \"w\");
-    FILE* tensor_f = NULL;
-    const char* dump_env = getenv(\"COCHL_DUMP_TENSOR\");
-    if (dump_env && dump_env[0] == '1') {{
-        tensor_f = fopen(\"metadata/op_tensor.txt\", \"w\");
-    }}
-    const int op_count = {len(op_lines)};
-    double* op_ms = op_count > 0 ? (double*)malloc(sizeof(double) * (size_t)op_count) : NULL;
-    const char** op_labels = op_count > 0 ? (const char**)malloc(sizeof(char*) * (size_t)op_count) : NULL;
-    const char** op_modes = op_count > 0 ? (const char**)malloc(sizeof(char*) * (size_t)op_count) : NULL;
-    if (op_ms) {{
-        for (int i = 0; i < op_count; ++i) op_ms[i] = 0.0;
-    }}
-    if (op_labels) {{
-        for (int i = 0; i < op_count; ++i) op_labels[i] = NULL;
-    }}
-    if (op_modes) {{
-        for (int i = 0; i < op_count; ++i) op_modes[i] = NULL;
-    }}
-    const int warmup = 3;
-    const int runs = 5;
-    for (int i = 0; i < warmup; ++i)
-    {{
-{calls}
-    }}
-    double infer_sum = 0.0;
-    for (int i = 0; i < runs; ++i)
-    {{
-        auto infer_t0 = std::chrono::high_resolution_clock::now();
-{calls}
-        auto infer_t1 = std::chrono::high_resolution_clock::now();
-        infer_sum += std::chrono::duration<double, std::milli>(infer_t1 - infer_t0).count();
-    }}
-    double infer_ms = infer_sum / runs;
-
-    if (timing_f && op_count > 0 && op_ms && op_labels)
-    {{
-        fprintf(timing_f, \"inference_total %.6f ms\\n\", infer_ms);
-        // stable sort indices by descending time
-        int* idx = (int*)malloc(sizeof(int) * (size_t)op_count);
-        for (int i = 0; i < op_count; ++i) idx[i] = i;
-        for (int i = 0; i < op_count; ++i)
-        {{
-            for (int j = i + 1; j < op_count; ++j)
-            {{
-                if (op_ms[idx[j]] > op_ms[idx[i]])
-                {{
-                    int tmp = idx[i];
-                    idx[i] = idx[j];
-                    idx[j] = tmp;
-                }}
-            }}
-        }}
-        for (int i = 0; i < op_count; ++i)
-        {{
-            int k = idx[i];
-            const char* label = op_labels[k] ? op_labels[k] : \"unknown\";
-            const char* mode = op_modes && op_modes[k] ? op_modes[k] : \"unknown\";
-            fprintf(timing_f, \"op %d %s %s %.6f ms\\n\", k, mode, label, op_ms[k] / (double)runs);
-        }}
-        free(idx);
-    }}
-
-    if (output && output_elems > 0)
-    {{
-        FILE* outf = fopen(output_path, \"wb\");
-        if (!outf) {{
-            fprintf(stderr, \"failed to open %s\\n\", output_path);
-        }} else {{
-            fwrite(output, sizeof(float), (size_t)output_elems, outf);
-            fclose(outf);
-        }}
-    }}
-
-    free(output);
-    free(input);
-    free(wbuf);
-    if (timing_f) fclose(timing_f);
-    if (tensor_f) fclose(tensor_f);
-    return 0;
-}}
-"""
-    entry_path.write_text(entry_code, encoding="utf-8")
+    _render_entry_source(
+        entry_path=entry_path,
+        model_name=entry_path.stem,
+        proto_block=proto_block,
+        storage_block="",
+        input_shape=(),
+        output_shape=(),
+        num_buffers=0,
+        total_storage_mb=0.0,
+        op_count=len(op_lines),
+        calls=calls,
+        output_src="output",
+        output_elems_calc=output_elems_calc,
+        dump_ir_tensor_data=dump_ir_tensor_data,
+        trace_operator_delay=trace_operator_delay,
+    )
 
 
 # ---- ncnn codegen entry ----
@@ -1839,8 +1165,8 @@ def _codegen_impl(
     """ncnn backend codegen entry (Sense pipeline)."""
     from tvm.cochl.framework.ncnn.kernel.op_packer import build_pattern_entries
     from tvm.cochl.framework.ncnn.kernel.weight_packer import NcnnWeightPacker
-    from tvm.cochl.framework.ncnn.codegen.sources import NCNN_HEADER, NCNN_TO_STANDALONE
-    from tvm.cochl.framework.ncnn.codegen.helpers import emit_metadata, unmatched_reason, as_pattern_entry
+    from tvm.cochl.framework.ncnn.codegen.ncnn_path import NCNN_HEADER, NCNN_TO_STANDALONE
+    from tvm.cochl.framework.ncnn.codegen.helpers import as_pattern_entry
     from tvm.cochl.framework.ncnn.codegen.match import symbol_for_entry
     from tvm.cochl.framework.ncnn.codegen.libgen import build_call_extern_module, collect_neon_sources, write_lib0_with_impl
     from tvm.cochl.framework.ncnn.codegen.wrappers import wrapper_source
@@ -1851,6 +1177,13 @@ def _codegen_impl(
 
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+    dump_ir_tensor_data = bool(kwargs.get("dump_ir_tensor_data", False))
+    trace_operator_delay = bool(kwargs.get("trace_operator_delay", False))
+    metadata_dir = output_dir / "metadata"
+    for stale_name in ("op_delay.txt", "op_map.txt", "op_unmatched.txt"):
+        stale_path = metadata_dir / stale_name
+        if stale_path.exists():
+            stale_path.unlink()
 
     # Build const index map (hash -> const idx, shape-agnostic)
     const_idx_map: dict[str, int] = {}
@@ -1869,18 +1202,12 @@ def _codegen_impl(
         const_idx_map=const_idx_map,
     )
 
-    matched_lines = []
-    unmatched_lines = []
     matched_symbols: set[str] = set()
     for idx, entry in enumerate(pattern_entries):
-        ncnn_name = infer_ncnn_function_name(as_pattern_entry(entry))
         symbol = symbol_for_entry(entry)
-        line = f"{idx}: {entry['tvm_op']} -> {ncnn_name} params={json.dumps(entry['attrs'], sort_keys=True)}"
         if symbol is None:
-            reason = unmatched_reason(entry, ncnn_name)
-            unmatched_lines.append(f"{line} reason={reason}")
+            continue
         else:
-            matched_lines.append(line)
             matched_symbols.add(symbol)
 
     matched_symbols.update(
@@ -1897,8 +1224,6 @@ def _codegen_impl(
     if any(entry.get("tvm_op") == "relax.nn.conv2d" for entry in pattern_entries):
         matched_symbols.add("convolution_transform_kernel_packed_standalone")
         matched_symbols.add("convolution_packed_neon_standalone")
-
-    emit_metadata(output_dir, matched_lines, unmatched_lines)
 
     # Build tvm_c memory plan (for const index mapping)
     model_path = kwargs.get("model_path") or kwargs.get("onnx_path")
@@ -2005,6 +1330,14 @@ def _codegen_impl(
     # Emit main entry
     entry_path = lib_dir / f"{model_name}.c"
     weights_json = output_dir / "metadata" / "weights.json"
-    emit_main_entry_from_plan(entry_path, plan, pattern_entries, weights_json, None)
+    emit_main_entry_from_plan(
+        entry_path,
+        plan,
+        pattern_entries,
+        weights_json,
+        None,
+        dump_ir_tensor_data=dump_ir_tensor_data,
+        trace_operator_delay=trace_operator_delay,
+    )
 
     return True

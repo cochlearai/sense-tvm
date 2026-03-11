@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
-from tvm.cochl.framework.ncnn.codegen.sources import NCNN_TO_STANDALONE
+from tvm.cochl.framework.ncnn.codegen.ncnn_path import NCNN_TO_STANDALONE
 from tvm.cochl.framework.ncnn.relax.op.pattern_table import infer_ncnn_function_name
 from tvm.cochl.framework.ncnn.codegen.helpers import as_pattern_entry
 

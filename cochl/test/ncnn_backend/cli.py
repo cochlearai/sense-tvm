@@ -23,7 +23,7 @@ from tvm.cochl.framework.ncnn.kernel.op_packer import (  # noqa: E402
 )
 
 from cochl.test.ncnn_backend.helpers import emit_metadata, unmatched_reason, as_pattern_entry  # noqa: E402
-from tvm.cochl.framework.ncnn.codegen.sources import NCNN_TO_STANDALONE  # noqa: E402
+from tvm.cochl.framework.ncnn.codegen.ncnn_path import NCNN_TO_STANDALONE  # noqa: E402
 from cochl.test.ncnn_backend.match import symbol_for_entry  # noqa: E402
 from cochl.test.ncnn_backend.libgen import (  # noqa: E402
     build_call_extern_module,

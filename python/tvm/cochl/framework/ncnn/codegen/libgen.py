@@ -5,7 +5,7 @@ from pathlib import Path
 import tvm
 from tvm import tir
 
-from tvm.cochl.framework.ncnn.codegen.sources import NEON_SOURCES
+from tvm.cochl.framework.ncnn.codegen.ncnn_path import NEON_SOURCES
 from tvm.cochl.framework.ncnn.codegen.match import call_extern_symbol
 
 
