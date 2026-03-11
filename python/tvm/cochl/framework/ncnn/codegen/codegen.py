@@ -2,12 +2,13 @@
 from __future__ import annotations
 
 from pathlib import Path
+import importlib
 import json
 import re
 from typing import Dict, Iterable, List, Tuple
 
 import tvm
-from tvm.cochl.framework.relax.standalone_packer import match_relax_const_idx
+from tvm.cochl.framework.relax.standalone_packer import StandalonePacker, match_relax_const_idx
 from tvm.cochl.framework.ncnn.kernel.op_packer import (
     entry_to_pattern_entry,
     infer_ncnn_function_name,
@@ -24,6 +25,27 @@ def _normalize_func(name: str) -> str:
 def _indent_block(text: str, indent: str = "    ") -> list[str]:
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     return [f"{indent}{line}" for line in lines]
+
+
+def translate_standalone(ir_mod):
+    if ir_mod is None:
+        raise ValueError("translate_standalone requires ir_mod")
+    mod = importlib.import_module("tvm.cochl.framework.tvm_c.relax.pass")
+    passes = mod.get_sense_main_passes()
+    with tvm.transform.PassContext(opt_level=3):
+        lowered_ir_mod = tvm.transform.Sequential(passes)(ir_mod)
+    text = lowered_ir_mod.script(show_meta=True)
+    parser = StandalonePacker(text)
+    parser.pack()
+    scalar = None
+    m = re.search(r"T_multiply[^\n]*= .*?\* T\.float32\(([^)]+)\)", text)
+    if m:
+        try:
+            scalar = float(m.group(1))
+        except ValueError:
+            scalar = None
+    parser.scalar_values = {"multiply": scalar} if scalar is not None else {}
+    return parser
 
 
 def _render_entry_source(
@@ -1059,7 +1081,6 @@ def _codegen_impl(
     from tvm.cochl.framework.ncnn.kernel.weight_packer import NcnnWeightPacker
     from tvm.cochl.framework.ncnn.codegen.ncnn_path import NCNN_HEADER, NCNN_TO_STANDALONE
     from tvm.cochl.framework.ncnn.codegen.libgen import build_call_extern_module, collect_neon_sources, write_lib0_with_impl
-    from tvm.cochl.framework.ncnn.codegen.memory_plan import build_plan
     import hashlib
     import json
     import numpy as np
@@ -1114,11 +1135,8 @@ def _codegen_impl(
         matched_symbols.add("convolution_transform_kernel_packed_standalone")
         matched_symbols.add("convolution_packed_neon_standalone")
 
-    # Build tvm_c memory plan (for const index mapping)
-    model_path = kwargs.get("model_path") or kwargs.get("onnx_path")
-    if model_path is None:
-        raise ValueError("ncnn codegen requires model_path/onnx_path for memory plan")
-    plan = build_plan(model_path)
+    # Build memory plan from the same IR used for pattern extraction.
+    plan = translate_standalone(ir_mod)
     if any(op.func_name == "pad" for op in plan.operations):
         matched_symbols.add("pad2d_nchw")
 

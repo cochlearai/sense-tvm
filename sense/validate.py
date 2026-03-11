@@ -168,13 +168,6 @@ def run_validation(sense: Sense, model_path: Path) -> bool:
         / sense.sense_config.hardware.device
         / sense.sense_config.build_option.backend
     )
-    executable = (output_dir / sense.sense_config.export.model_name).resolve()
-    print("[INFO] Rebuilding validation binary...")
-    if not _build_binary(output_dir):
-        return False
-    if not executable.exists():
-        print(f"Error: executable not found at {executable}")
-        return False
 
     input_name, input_meta = next(iter(input_info.items()))
     input_shape = tuple(input_meta.get("shape", ()))
