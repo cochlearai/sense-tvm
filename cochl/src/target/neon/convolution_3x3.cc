@@ -73,3 +73,22 @@ int conv3x3s2_neon_standalone(const MatMini* bottom,
 
     return 0;
 }
+
+int conv3x3s2_pack1_standalone(const float* input,
+                               const float* weight,
+                               const float* bias,
+                               float* output,
+                               int in_c,
+                               int in_h,
+                               int in_w,
+                               int out_c,
+                               int out_h,
+                               int out_w)
+{
+    if (!input || !weight || !output) return -1;
+    MatMini bottom = {in_w, in_h, in_c, 1, (size_t)in_h * in_w, (float*)input};
+    MatMini top = {out_w, out_h, out_c, 1, (size_t)out_h * out_w, output};
+    MatMini kernel = {0, 0, out_c, 1, 0, (float*)weight};
+    MatMini b = {0, 0, out_c, 1, 0, (float*)bias};
+    return conv3x3s2_neon_standalone(&bottom, &top, &kernel, bias ? &b : NULL);
+}

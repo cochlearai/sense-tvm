@@ -87,11 +87,8 @@ int main(int argc, char** argv)
     // warmup (s1)
     conv3x3s1_pack1to4_neon(bottom, top, kernel, bias, opt);
     size_t bottom_cstep = align_cstep(inw, inh, 4);
-    MatMini bottom_s{inw, inh, inch, 1, bottom_cstep, bottom_buf};
-    MatMini top_s{outw, outh, outch_pack, 4, (size_t)outw * outh * 4, top_buf_standalone};
-    MatMini kernel_s{inch * 9, 1, outch_pack, 4, (size_t)(inch * 9) * 4, kernel_buf};
-    MatMini bias_s{outch_pack, 1, 1, 4, (size_t)outch_pack * 4, bias_buf};
-    conv3x3s1_pack1to4_neon_standalone(&bottom_s, &top_s, &kernel_s, &bias_s);
+    conv3x3s1_pack1to4_standalone(
+        bottom_buf, kernel_buf, bias_buf, top_buf_standalone, inch, inh, inw, outch, outh, outw);
     float diff_s1 = max_abs_diff(top_buf, top_buf_standalone, top_elems);
 
     const int repeats = 50;
@@ -117,7 +114,8 @@ int main(int argc, char** argv)
     for (int i = 0; i < repeats; ++i)
     {
         auto t0 = std::chrono::high_resolution_clock::now();
-        conv3x3s1_pack1to4_neon_standalone(&bottom_s, &top_s, &kernel_s, &bias_s);
+        conv3x3s1_pack1to4_standalone(
+            bottom_buf, kernel_buf, bias_buf, top_buf_standalone, inch, inh, inw, outch, outh, outw);
         auto t1 = std::chrono::high_resolution_clock::now();
         double ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
         total_ms += ms;
@@ -154,12 +152,9 @@ int main(int argc, char** argv)
 
     fill_random(bottom_buf2, bottom_elems2);
 
-    size_t bottom2_cstep = align_cstep(inw2, inh2, 4);
-    MatMini bottom2_s{inw2, inh2, inch, 1, bottom2_cstep, bottom_buf2};
-    MatMini top2_s{outw2, outh2, outch_pack, 4, (size_t)outw2 * outh2 * 4, top_buf2_standalone};
-
     conv3x3s2_pack1to4_neon(bottom2, top2, kernel, bias, opt);
-    conv3x3s2_pack1to4_neon_standalone(&bottom2_s, &top2_s, &kernel_s, &bias_s);
+    conv3x3s2_pack1to4_standalone(
+        bottom_buf2, kernel_buf, bias_buf, top_buf2_standalone, inch, inh2, inw2, outch, outh2, outw2);
     float diff_s2 = max_abs_diff(top_buf2, top_buf2_standalone, top_elems2);
 
     total_ms = 0.0;
@@ -181,7 +176,8 @@ int main(int argc, char** argv)
     for (int i = 0; i < repeats; ++i)
     {
         auto t0 = std::chrono::high_resolution_clock::now();
-        conv3x3s2_pack1to4_neon_standalone(&bottom2_s, &top2_s, &kernel_s, &bias_s);
+        conv3x3s2_pack1to4_standalone(
+            bottom_buf2, kernel_buf, bias_buf, top_buf2_standalone, inch, inh2, inw2, outch, outh2, outw2);
         auto t1 = std::chrono::high_resolution_clock::now();
         double ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
         total_ms += ms;

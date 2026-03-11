@@ -1,11 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
-from pathlib import Path
-import json
-from typing import Iterable
-
-
 def as_pattern_entry(entry: dict):
     # minimal shim: entries are already dicts with tvm_op/ncnn_op/attrs
     class _E:
@@ -41,16 +36,3 @@ def make_pad_entry(entry: dict) -> dict:
         "hardware": entry.get("hardware", ""),
         "arch": entry.get("arch", ""),
     }
-
-
-def emit_metadata(output_dir: Path, matched_lines: Iterable[str], unmatched_lines: Iterable[str]) -> None:
-    meta_dir = output_dir / "metadata"
-    meta_dir.mkdir(parents=True, exist_ok=True)
-    (meta_dir / "op_map.txt").write_text("\n".join(matched_lines) + "\n", encoding="utf-8")
-    (meta_dir / "op_unmatched.txt").write_text("\n".join(unmatched_lines) + "\n", encoding="utf-8")
-
-
-def unmatched_reason(entry: dict, ncnn_name: str) -> str:
-    if entry.get("tvm_op") == "relax.nn.pad":
-        return "padding"
-    return f"no_symbol:{ncnn_name}"

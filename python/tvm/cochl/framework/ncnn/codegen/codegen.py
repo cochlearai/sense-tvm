@@ -478,46 +478,6 @@ def emit_main_entry_from_plan(
                 pack_state[op.output_var] = 1
                 continue
 
-
-            # Depthwise conv fallback when stride2 kernel is missing
-            if entry.get("tvm_op") == "relax.nn.conv2d":
-                groups = int(entry.get("attrs", {}).get("groups", 1))
-                in_c_attr = int(entry.get("attrs", {}).get("in_channels", 1))
-                out_c_attr = int(entry.get("attrs", {}).get("out_channels", 1))
-                stride = int(entry.get("attrs", {}).get("strides", [1, 1])[0])
-                if groups == in_c_attr == out_c_attr and stride == 2 and ncnn_name != "convdw3x3s2_pack4_neon":
-                    op_label = f"{entry['tvm_op']}:{ncnn_name}:dw_s2_fallback"
-                    op_lines.append(("fallback_dw", "fallback_dw", op_label))
-                    _append_op_io(
-                        inputs[0],
-                        output,
-                        in_elems,
-                        out_elems,
-                        in_pack=_pack_for_var(op.input_vars[0]) if op.input_vars else 1,
-                        out_pack=1,
-                        in_shape=in_shape0,
-                        out_shape=out_shape,
-                    )
-                    in_shape = in_shape0 or (1, 1, 1, 1)
-                    out_shape_use = out_shape or (1, 1, 1, 1)
-                    in_c = int(in_shape[1]) if len(in_shape) > 1 else 1
-                    in_h = int(in_shape[2]) if len(in_shape) > 2 else 1
-                    in_w = int(in_shape[3]) if len(in_shape) > 3 else 1
-                    out_h = int(out_shape_use[2]) if len(out_shape_use) > 2 else 1
-                    out_w = int(out_shape_use[3]) if len(out_shape_use) > 3 else 1
-                    weight_ptr = inputs[1] if len(inputs) > 1 else "NULL"
-                    proto_lines.append(
-                        "static void depthwise3x3_pack1(const float* input, const float* weight, float* output, int c, int in_h, int in_w, int out_h, int out_w, int stride, int pad_top, int pad_left, int pad_bottom, int pad_right);"
-                    )
-                    pad_top = int(entry.get("attrs", {}).get("padding", [0, 0, 0, 0])[0])
-                    pad_left = int(entry.get("attrs", {}).get("padding", [0, 0, 0, 0])[1])
-                    pad_bottom = int(entry.get("attrs", {}).get("padding", [0, 0, 0, 0])[2])
-                    pad_right = int(entry.get("attrs", {}).get("padding", [0, 0, 0, 0])[3])
-                    call_lines.append(
-                        f"    depthwise3x3_pack1({inputs[0]}, {weight_ptr}, {output}, {in_c}, {in_h}, {in_w}, {out_h}, {out_w}, {stride}, {pad_top}, {pad_left}, {pad_bottom}, {pad_right});"
-                    )
-                    pack_state[op.output_var] = 1
-                    continue
             symbol_info = call_extern_symbol(entry)
             if symbol_info is None:
                 continue
@@ -846,76 +806,6 @@ def emit_main_entry_from_plan(
                 f"    {{ const float* ins[{len(op.input_vars)}] = {{{', '.join(inputs[:len(op.input_vars)])}}}; concat_last_axis(ins, {len(op.input_vars)}, {output}, {n}, {h}, {w}, {in_c_each}); }}"
             )
             pack_state[op.output_var] = 1
-        elif base == "maximum":
-            proto_lines.append("static void max_f32(const float* a, const float* b, float* out, long size, int b_scalar);")
-            size = out_elems or in_elems or 1
-            b_scalar = 1 if op.input_vars[1].startswith("R.const(") else 0
-            in_pack0 = _pack_for_var(op.input_vars[0]) if op.input_vars else 1
-            pre_lines = []
-            a_ptr = inputs[0]
-            b_ptr = inputs[1]
-            out_ptr = output
-            if in_pack0 == 4:
-                in_shape = in_shape0 or (1, 1, 1, 1)
-                n = int(in_shape[0]) if len(in_shape) > 0 else 1
-                c = int(in_shape[1]) if len(in_shape) > 1 else 1
-                h = int(in_shape[2]) if len(in_shape) > 2 else 1
-                w = int(in_shape[3]) if len(in_shape) > 3 else 1
-                pre_lines.append(f"    pack4_to_pack1({inputs[0]}, g_pack_tmp, {n}, {c}, {h}, {w});")
-                a_ptr = "g_pack_tmp"
-                out_ptr = "g_pack_tmp"
-                if not b_scalar and len(op.input_vars) > 1 and op.input_vars[1] in plan.tensors:
-                    in_pack1 = _pack_for_var(op.input_vars[1])
-                    if in_pack1 == 4:
-                        pre_lines.append(f"    pack4_to_pack1({inputs[1]}, g_pack_tmp2, {n}, {c}, {h}, {w});")
-                        b_ptr = "g_pack_tmp2"
-            call_seq = pre_lines + [f"    max_f32({a_ptr}, {b_ptr}, {out_ptr}, {size}, {b_scalar});"]
-            if in_pack0 == 4:
-                in_shape = in_shape0 or (1, 1, 1, 1)
-                n = int(in_shape[0]) if len(in_shape) > 0 else 1
-                c = int(in_shape[1]) if len(in_shape) > 1 else 1
-                h = int(in_shape[2]) if len(in_shape) > 2 else 1
-                w = int(in_shape[3]) if len(in_shape) > 3 else 1
-                call_seq.append(f"    pack1_to_pack4(g_pack_tmp, {output}, {n}, {c}, {h}, {w});")
-                if op_out_pack:
-                    op_out_pack[-1] = 4
-            call_lines.append("\n".join(call_seq))
-            pack_state[op.output_var] = in_pack0
-        elif base == "minimum":
-            proto_lines.append("static void min_f32(const float* a, const float* b, float* out, long size, int b_scalar);")
-            size = out_elems or in_elems or 1
-            b_scalar = 1 if op.input_vars[1].startswith("R.const(") else 0
-            in_pack0 = _pack_for_var(op.input_vars[0]) if op.input_vars else 1
-            pre_lines = []
-            a_ptr = inputs[0]
-            b_ptr = inputs[1]
-            out_ptr = output
-            if in_pack0 == 4:
-                in_shape = in_shape0 or (1, 1, 1, 1)
-                n = int(in_shape[0]) if len(in_shape) > 0 else 1
-                c = int(in_shape[1]) if len(in_shape) > 1 else 1
-                h = int(in_shape[2]) if len(in_shape) > 2 else 1
-                w = int(in_shape[3]) if len(in_shape) > 3 else 1
-                pre_lines.append(f"    pack4_to_pack1({inputs[0]}, g_pack_tmp, {n}, {c}, {h}, {w});")
-                a_ptr = "g_pack_tmp"
-                out_ptr = "g_pack_tmp"
-                if not b_scalar and len(op.input_vars) > 1 and op.input_vars[1] in plan.tensors:
-                    in_pack1 = _pack_for_var(op.input_vars[1])
-                    if in_pack1 == 4:
-                        pre_lines.append(f"    pack4_to_pack1({inputs[1]}, g_pack_tmp2, {n}, {c}, {h}, {w});")
-                        b_ptr = "g_pack_tmp2"
-            call_seq = pre_lines + [f"    min_f32({a_ptr}, {b_ptr}, {out_ptr}, {size}, {b_scalar});"]
-            if in_pack0 == 4:
-                in_shape = in_shape0 or (1, 1, 1, 1)
-                n = int(in_shape[0]) if len(in_shape) > 0 else 1
-                c = int(in_shape[1]) if len(in_shape) > 1 else 1
-                h = int(in_shape[2]) if len(in_shape) > 2 else 1
-                w = int(in_shape[3]) if len(in_shape) > 3 else 1
-                call_seq.append(f"    pack1_to_pack4(g_pack_tmp, {output}, {n}, {c}, {h}, {w});")
-                if op_out_pack:
-                    op_out_pack[-1] = 4
-            call_lines.append("\n".join(call_seq))
-            pack_state[op.output_var] = in_pack0
         elif base == "reshape":
             proto_lines.append("static void reshape_copy(const float* in, float* out, long size);")
             size = out_elems or in_elems or 1
@@ -1169,7 +1059,6 @@ def _codegen_impl(
     from tvm.cochl.framework.ncnn.codegen.helpers import as_pattern_entry
     from tvm.cochl.framework.ncnn.codegen.match import symbol_for_entry
     from tvm.cochl.framework.ncnn.codegen.libgen import build_call_extern_module, collect_neon_sources, write_lib0_with_impl
-    from tvm.cochl.framework.ncnn.codegen.wrappers import wrapper_source
     from tvm.cochl.framework.ncnn.codegen.memory_plan import build_plan
     import hashlib
     import json
@@ -1180,7 +1069,7 @@ def _codegen_impl(
     dump_ir_tensor_data = bool(kwargs.get("dump_ir_tensor_data", False))
     trace_operator_delay = bool(kwargs.get("trace_operator_delay", False))
     metadata_dir = output_dir / "metadata"
-    for stale_name in ("op_delay.txt", "op_map.txt", "op_unmatched.txt"):
+    for stale_name in ("op_delay.txt",):
         stale_path = metadata_dir / stale_name
         if stale_path.exists():
             stale_path.unlink()
@@ -1212,12 +1101,12 @@ def _codegen_impl(
 
     matched_symbols.update(
         {
-            "conv3x3s1_pack1to4_neon_standalone",
-            "conv3x3s2_pack1to4_neon_standalone",
+            "conv3x3s1_pack1to4_standalone",
+            "conv3x3s2_pack1to4_standalone",
             "conv3x3s2_neon_standalone",
-            "conv1x1s1_neon_standalone",
-            "convdw3x3s1_pack4_neon_standalone",
-            "convdw3x3s2_pack4_neon_standalone",
+            "conv1x1s1_standalone",
+            "convdw3x3s1_standalone",
+            "convdw3x3s2_standalone",
         }
     )
 
@@ -1312,9 +1201,9 @@ def _codegen_impl(
     lib0_path = lib_dir / "lib0.c"
     rt_mod.write_to_file(str(lib0_path))
 
-    # Append wrappers + matched implementations
+    # Append matched implementations
     sources = collect_neon_sources(matched_symbols)
-    write_lib0_with_impl(lib0_path, sources, wrapper_source(), matched_symbols)
+    write_lib0_with_impl(lib0_path, sources, matched_symbols)
     if NCNN_HEADER.exists():
         (lib_dir / "ncnn.h").write_bytes(NCNN_HEADER.read_bytes())
 

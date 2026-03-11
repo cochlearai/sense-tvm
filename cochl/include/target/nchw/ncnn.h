@@ -24,20 +24,38 @@ typedef struct {
     float* data;
 } MatMini;
 
-int conv3x3s1_pack1to4_neon_standalone(const MatMini* bottom,
-                                       MatMini* top,
-                                       const MatMini* kernel,
-                                       const MatMini* bias);
+int conv3x3s1_pack1to4_standalone(const float* input,
+                                  const float* weight,
+                                  const float* bias,
+                                  float* output,
+                                  int in_c,
+                                  int in_h,
+                                  int in_w,
+                                  int out_c,
+                                  int out_h,
+                                  int out_w);
 
-int conv3x3s2_pack1to4_neon_standalone(const MatMini* bottom,
-                                       MatMini* top,
-                                       const MatMini* kernel,
-                                       const MatMini* bias);
+int conv3x3s2_pack1to4_standalone(const float* input,
+                                  const float* weight,
+                                  const float* bias,
+                                  float* output,
+                                  int in_c,
+                                  int in_h,
+                                  int in_w,
+                                  int out_c,
+                                  int out_h,
+                                  int out_w);
 
-int conv3x3s2_neon_standalone(const MatMini* bottom,
-                              MatMini* top,
-                              const MatMini* kernel,
-                              const MatMini* bias);
+int conv3x3s2_pack1_standalone(const float* input,
+                               const float* weight,
+                               const float* bias,
+                               float* output,
+                               int in_c,
+                               int in_h,
+                               int in_w,
+                               int out_c,
+                               int out_h,
+                               int out_w);
 
 int ncnn_binary_op_vector_broadcast_b_add(const float* ptr,
                                           const float* ptr1,
@@ -111,10 +129,16 @@ int binary_op_broadcast_add_standalone(const float* a,
                                        int outer,
                                        int inner);
 
-int conv1x1s1_neon_standalone(const MatMini* bottom,
-                              MatMini* top,
-                              const MatMini* kernel,
-                              const MatMini* bias);
+int conv1x1s1_standalone(const float* input,
+                         const float* weight,
+                         const float* bias,
+                         float* output,
+                         int in_c,
+                         int in_h,
+                         int in_w,
+                         int out_c,
+                         int out_h,
+                         int out_w);
 
 int sigmoid_neon_standalone(float* ptr, int size);
 
@@ -158,15 +182,27 @@ int reduction_mean_hw_keepdims(const float* input,
                                int h,
                                int w);
 
-int convdw3x3s1_pack4_neon_standalone(const MatMini* bottom,
-                                      MatMini* top,
-                                      const MatMini* kernel,
-                                      const MatMini* bias);
+int convdw3x3s1_standalone(const float* input,
+                           const float* weight,
+                           const float* bias,
+                           float* output,
+                           int in_c,
+                           int in_h,
+                           int in_w,
+                           int out_c,
+                           int out_h,
+                           int out_w);
 
-int convdw3x3s2_pack4_neon_standalone(const MatMini* bottom,
-                                      MatMini* top,
-                                      const MatMini* kernel,
-                                      const MatMini* bias);
+int convdw3x3s2_standalone(const float* input,
+                           const float* weight,
+                           const float* bias,
+                           float* output,
+                           int in_c,
+                           int in_h,
+                           int in_w,
+                           int out_c,
+                           int out_h,
+                           int out_w);
 
 int convolution_transform_kernel_packed_standalone(const MatMini* kernel,
                                                     MatMini* kernel_tm,

@@ -218,9 +218,7 @@ def _strip_source_preamble(lines: list[str]) -> list[str]:
     return lines[start:]
 
 
-def write_lib0_with_impl(
-    lib0_path: Path, sources: list[Path], wrappers: str, symbols: set[str]
-) -> None:
+def write_lib0_with_impl(lib0_path: Path, sources: list[Path], symbols: set[str]) -> None:
     lib0_path.parent.mkdir(parents=True, exist_ok=True)
     call_extern_src = ""
     if lib0_path.exists():
@@ -234,7 +232,6 @@ def write_lib0_with_impl(
     parts.append('#include <cstring>\n')
     parts.append('#include <vector>\n')
     parts.append('#include "ncnn.h"\n\n')
-    parts.append(wrappers)
     # Skip TVM call_extern C output for standalone validation build.
     emitted_mat = False
     emitted_option = False

@@ -6,12 +6,12 @@ NCNN_HEADER = _REPO_ROOT / "cochl/include/target/nchw/ncnn.h"
 
 NEON_SOURCES = {
     "conv3x3s2_neon_standalone": _REPO_ROOT / "cochl/src/target/neon/convolution_3x3.cc",
-    "conv3x3s1_pack1to4_neon_standalone": _REPO_ROOT / "cochl/src/target/neon/convolution_3x3_pack1to4.cc",
-    "conv3x3s2_pack1to4_neon_standalone": _REPO_ROOT / "cochl/src/target/neon/convolution_3x3_pack1to4.cc",
-    "conv1x1s1_neon_standalone": _REPO_ROOT / "cochl/src/target/neon/convolution_1x1.cc",
-    "convdw3x3s1_pack4_neon_standalone": _REPO_ROOT
+    "conv3x3s1_pack1to4_standalone": _REPO_ROOT / "cochl/src/target/neon/convolution_3x3_pack1to4.cc",
+    "conv3x3s2_pack1to4_standalone": _REPO_ROOT / "cochl/src/target/neon/convolution_3x3_pack1to4.cc",
+    "conv1x1s1_standalone": _REPO_ROOT / "cochl/src/target/neon/convolution_1x1.cc",
+    "convdw3x3s1_standalone": _REPO_ROOT
     / "cochl/src/target/neon/convolutiondepthwise_3x3_pack4.cc",
-    "convdw3x3s2_pack4_neon_standalone": _REPO_ROOT
+    "convdw3x3s2_standalone": _REPO_ROOT
     / "cochl/src/target/neon/convolutiondepthwise_3x3_pack4.cc",
     "pad2d_nchw": _REPO_ROOT / "cochl/src/target/neon/pad.cc",
     "binary_op_vector_broadcast_b_add_standalone": _REPO_ROOT / "cochl/src/target/neon/binaryop_arm.cc",
@@ -31,12 +31,12 @@ NEON_SOURCES = {
 }
 
 NCNN_TO_STANDALONE = {
-    "conv3x3s1_pack1to4_neon": "conv3x3s1_pack1to4_neon_standalone",
-    "conv3x3s2_pack1to4_neon": "conv3x3s2_pack1to4_neon_standalone",
+    "conv3x3s1_pack1to4_neon": "conv3x3s1_pack1to4_standalone",
+    "conv3x3s2_pack1to4_neon": "conv3x3s2_pack1to4_standalone",
     "conv3x3s2_neon": "conv3x3s2_neon_standalone",
-    "conv1x1s1_neon": "conv1x1s1_neon_standalone",
-    "convdw3x3s1_pack4_neon": "convdw3x3s1_pack4_neon_standalone",
-    "convdw3x3s2_pack4_neon": "convdw3x3s2_pack4_neon_standalone",
+    "conv1x1s1_neon": "conv1x1s1_standalone",
+    "convdw3x3s1_pack4_neon": "convdw3x3s1_standalone",
+    "convdw3x3s2_pack4_neon": "convdw3x3s2_standalone",
     "binary_op_vector_broadcast_b": "binary_op_vector_broadcast_b_add_standalone",
     "binary_op_vector_no_broadcast": "binary_op_vector_no_broadcast_add_standalone",
     "binary_op_broadcast": "binary_op_broadcast_add_standalone",

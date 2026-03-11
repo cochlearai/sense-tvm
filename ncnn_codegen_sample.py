@@ -1885,12 +1885,12 @@ def _codegen_impl(
 
     matched_symbols.update(
         {
-            "conv3x3s1_pack1to4_neon_standalone",
-            "conv3x3s2_pack1to4_neon_standalone",
+            "conv3x3s1_pack1to4_standalone",
+            "conv3x3s2_pack1to4_standalone",
             "conv3x3s2_neon_standalone",
-            "conv1x1s1_neon_standalone",
-            "convdw3x3s1_pack4_neon_standalone",
-            "convdw3x3s2_pack4_neon_standalone",
+            "conv1x1s1_standalone",
+            "convdw3x3s1_standalone",
+            "convdw3x3s2_standalone",
         }
     )
 

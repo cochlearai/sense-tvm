@@ -52,11 +52,6 @@ int main()
     fill_random(kernel_buf, kernel_elems);
     fill_random(bias_buf, bias_elems);
 
-    MatMini bottom_s{inw, inh, inch, 1, (size_t)inw * inh, bottom_buf};
-    MatMini top_s{outw, outh, outch, 1, (size_t)outw * outh, top_buf_standalone};
-    MatMini kernel_s{inch, 1, outch, 1, (size_t)inch, kernel_buf};
-    MatMini bias_s{outch, 1, 1, 1, (size_t)outch, bias_buf};
-
     if (use_pack4)
     {
         int outch_pack = outch / 4;
@@ -67,15 +62,11 @@ int main()
         top = ncnn::Mat(outw, outh, outch_pack, top_buf, 16u, 4, 0);
         kernel = ncnn::Mat(inch, 1, outch_pack, kernel_buf, 16u, 4, 0);
         bias = ncnn::Mat(outch_pack, 1, 1, bias_buf, 16u, 4, 0);
-
-        top_s = MatMini{outw, outh, outch_pack, 4, (size_t)outw * outh * 4, top_buf_standalone};
-        kernel_s = MatMini{inch, 1, outch_pack, 4, (size_t)inch * 4, kernel_buf};
-        bias_s = MatMini{outch_pack, 1, 1, 4, (size_t)outch_pack * 4, bias_buf};
     }
 
     // warmup
     conv1x1s1_neon(bottom, top, kernel, bias, opt);
-    conv1x1s1_neon_standalone(&bottom_s, &top_s, &kernel_s, &bias_s);
+    conv1x1s1_standalone(bottom_buf, kernel_buf, bias_buf, top_buf_standalone, inch, inh, inw, outch, outh, outw);
 
     const int repeats = 100;
     double total_ms = 0.0;
@@ -98,7 +89,7 @@ int main()
     for (int i = 0; i < repeats; ++i)
     {
         auto t0 = std::chrono::high_resolution_clock::now();
-        conv1x1s1_neon_standalone(&bottom_s, &top_s, &kernel_s, &bias_s);
+        conv1x1s1_standalone(bottom_buf, kernel_buf, bias_buf, top_buf_standalone, inch, inh, inw, outch, outh, outw);
         auto t1 = std::chrono::high_resolution_clock::now();
         double ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
         total_ms += ms;

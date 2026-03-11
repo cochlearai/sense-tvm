@@ -1474,39 +1474,51 @@ static void convdw3x3s2_pack4_neon_impl(const Mat& bottom_blob, Mat& top_blob, c
     }
 }
 
-int convdw3x3s1_pack4_neon_standalone(const MatMini* bottom,
-                                      MatMini* top,
-                                      const MatMini* kernel,
-                                      const MatMini* bias)
+int convdw3x3s1_standalone(const float* input,
+                           const float* weight,
+                           const float* bias,
+                           float* output,
+                           int in_c,
+                           int in_h,
+                           int in_w,
+                           int out_c,
+                           int out_h,
+                           int out_w)
 {
-    if (!bottom || !top || !kernel) return -1;
-    Mat bottom_blob(bottom->w, bottom->h, bottom->c, bottom->elempack, bottom->cstep, bottom->data);
-    Mat top_blob(top->w, top->h, top->c, top->elempack, top->cstep, top->data);
-    Mat kernel_blob(kernel->w, kernel->h, kernel->c, kernel->elempack, kernel->cstep, kernel->data);
+    if (!input || !weight || !output) return -1;
+    int outc4 = out_c / 4;
+    Mat bottom_blob(in_w, in_h, outc4, 4, (size_t)in_h * in_w * 4, (float*)input);
+    Mat top_blob(out_w, out_h, outc4, 4, (size_t)out_h * out_w * 4, output);
+    Mat kernel_blob(9, outc4, 1, 4, (size_t)9, (float*)weight);
     Mat bias_blob;
-    if (bias)
-        bias_blob = Mat(bias->w, bias->h, bias->c, bias->elempack, bias->cstep, bias->data);
-
     Option opt;
+    if (bias)
+        bias_blob = Mat(0, 0, out_c / 4, 4, 0, (float*)bias);
     opt.num_threads = cochl_ncnn_num_threads;
     convdw3x3s1_pack4_neon_impl(bottom_blob, top_blob, kernel_blob, bias ? bias_blob : Mat(), opt);
     return 0;
 }
 
-int convdw3x3s2_pack4_neon_standalone(const MatMini* bottom,
-                                      MatMini* top,
-                                      const MatMini* kernel,
-                                      const MatMini* bias)
+int convdw3x3s2_standalone(const float* input,
+                           const float* weight,
+                           const float* bias,
+                           float* output,
+                           int in_c,
+                           int in_h,
+                           int in_w,
+                           int out_c,
+                           int out_h,
+                           int out_w)
 {
-    if (!bottom || !top || !kernel) return -1;
-    Mat bottom_blob(bottom->w, bottom->h, bottom->c, bottom->elempack, bottom->cstep, bottom->data);
-    Mat top_blob(top->w, top->h, top->c, top->elempack, top->cstep, top->data);
-    Mat kernel_blob(kernel->w, kernel->h, kernel->c, kernel->elempack, kernel->cstep, kernel->data);
+    if (!input || !weight || !output) return -1;
+    int outc4 = out_c / 4;
+    Mat bottom_blob(in_w, in_h, outc4, 4, (size_t)in_h * in_w * 4, (float*)input);
+    Mat top_blob(out_w, out_h, outc4, 4, (size_t)out_h * out_w * 4, output);
+    Mat kernel_blob(9, outc4, 1, 4, (size_t)9, (float*)weight);
     Mat bias_blob;
-    if (bias)
-        bias_blob = Mat(bias->w, bias->h, bias->c, bias->elempack, bias->cstep, bias->data);
-
     Option opt;
+    if (bias)
+        bias_blob = Mat(0, 0, out_c / 4, 4, 0, (float*)bias);
     opt.num_threads = cochl_ncnn_num_threads;
     convdw3x3s2_pack4_neon_impl(bottom_blob, top_blob, kernel_blob, bias ? bias_blob : Mat(), opt);
     return 0;

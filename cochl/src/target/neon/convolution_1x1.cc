@@ -1838,20 +1838,25 @@ static void conv1x1s1_neon_impl(const Mat& bottom_blob, Mat& top_blob, const Mat
     }
 }
 
-int conv1x1s1_neon_standalone(const MatMini* bottom,
-                              MatMini* top,
-                              const MatMini* kernel,
-                              const MatMini* bias)
+int conv1x1s1_standalone(const float* input,
+                         const float* weight,
+                         const float* bias,
+                         float* output,
+                         int in_c,
+                         int in_h,
+                         int in_w,
+                         int out_c,
+                         int out_h,
+                         int out_w)
 {
-    if (!bottom || !top || !kernel) return -1;
-    Mat bottom_blob(bottom->w, bottom->h, bottom->c, bottom->elempack, bottom->cstep, bottom->data);
-    Mat top_blob(top->w, top->h, top->c, top->elempack, top->cstep, top->data);
-    Mat kernel_blob(kernel->w, kernel->h, kernel->c, kernel->elempack, kernel->cstep, kernel->data);
+    if (!input || !weight || !output) return -1;
+    Mat bottom_blob(in_w, in_h, in_c, 1, (size_t)in_h * in_w, (float*)input);
+    Mat top_blob(out_w, out_h, out_c, 1, (size_t)out_h * out_w, output);
+    Mat kernel_blob(0, 0, out_c, 1, 0, (float*)weight);
     Mat bias_blob;
-    if (bias)
-        bias_blob = Mat(bias->w, bias->h, bias->c, bias->elempack, bias->cstep, bias->data);
-
     Option opt;
+    if (bias)
+        bias_blob = Mat(0, 0, out_c, 1, 0, (float*)bias);
     opt.num_threads = 1;
     conv1x1s1_neon_impl(bottom_blob, top_blob, kernel_blob, bias ? bias_blob : Mat(), opt);
     return 0;

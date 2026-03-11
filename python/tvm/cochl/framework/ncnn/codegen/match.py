@@ -37,17 +37,17 @@ def symbol_for_entry(entry: dict) -> str | None:
 def call_extern_symbol(entry: dict) -> tuple[str, str] | None:
     ncnn_func = infer_ncnn_function_name(as_pattern_entry(entry))
     if ncnn_func == "conv3x3s1_pack1to4_neon":
-        return "cochl_wrap_conv3x3s1_pack1to4", "conv"
+        return "conv3x3s1_pack1to4_standalone", "conv"
     if ncnn_func == "conv3x3s2_pack1to4_neon":
-        return "cochl_wrap_conv3x3s2_pack1to4", "conv"
+        return "conv3x3s2_pack1to4_standalone", "conv"
     if ncnn_func == "conv3x3s2_neon":
-        return "cochl_wrap_conv3x3s2_pack1", "conv"
+        return "conv3x3s2_pack1_standalone", "conv"
     if ncnn_func == "conv1x1s1_neon":
-        return "cochl_wrap_conv1x1s1", "conv"
+        return "conv1x1s1_standalone", "conv"
     if ncnn_func == "convdw3x3s1_pack4_neon":
-        return "cochl_wrap_convdw3x3s1", "conv"
+        return "convdw3x3s1_standalone", "conv"
     if ncnn_func == "convdw3x3s2_pack4_neon":
-        return "cochl_wrap_convdw3x3s2", "conv"
+        return "convdw3x3s2_standalone", "conv"
     if ncnn_func == "binary_op_vector_broadcast_b":
         sym = _binary_symbol(entry, ncnn_func) or "binary_op_vector_broadcast_b_add_standalone"
         return sym, "binary"

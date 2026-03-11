@@ -24,7 +24,8 @@ def generate_storage_section(storage_block: str) -> str:
 
 
 def generate_runtime_helpers() -> str:
-    return """
+    sections = [
+        """
 static float* g_weights = NULL;
 
 __attribute__((noinline))
@@ -48,40 +49,11 @@ static void reshape_copy(const float* in, float* out, long size)
             vout[i] = vin[i];
     }
 }
+"""
+    ]
 
-static void max_f32(const float* a, const float* b, float* out, long size, int b_scalar)
-{
-    if (!a || !out || size <= 0)
-        return;
-    if (b_scalar)
-    {
-        float s = b ? b[0] : 0.0f;
-        for (long i = 0; i < size; ++i)
-            out[i] = a[i] > s ? a[i] : s;
-    }
-    else
-    {
-        for (long i = 0; i < size; ++i)
-            out[i] = a[i] > b[i] ? a[i] : b[i];
-    }
-}
-
-static void min_f32(const float* a, const float* b, float* out, long size, int b_scalar)
-{
-    if (!a || !out || size <= 0)
-        return;
-    if (b_scalar)
-    {
-        float s = b ? b[0] : 0.0f;
-        for (long i = 0; i < size; ++i)
-            out[i] = a[i] < s ? a[i] : s;
-    }
-    else
-    {
-        for (long i = 0; i < size; ++i)
-            out[i] = a[i] < b[i] ? a[i] : b[i];
-    }
-}
+    sections.append(
+        """
 
 static void add_channel_bias_pack4(const float* a, const float* b, float* out, int n, int c, int h, int w)
 {
@@ -209,134 +181,9 @@ static void add_channel_bias(const float* a, const float* b, float* out, int n, 
         }
     }
 }
-
-static void conv3x3_pack1(const float* input,
-                          const float* weight,
-                          float* output,
-                          int in_c,
-                          int in_h,
-                          int in_w,
-                          int out_c,
-                          int out_h,
-                          int out_w,
-                          int stride,
-                          int pad_top,
-                          int pad_left,
-                          int pad_bottom,
-                          int pad_right)
-{
-    if (!input || !weight || !output)
-        return;
-    for (int oc = 0; oc < out_c; ++oc)
-    {
-        for (int oh = 0; oh < out_h; ++oh)
-        {
-            for (int ow = 0; ow < out_w; ++ow)
-            {
-                float sum = 0.0f;
-                for (int ic = 0; ic < in_c; ++ic)
-                {
-                    int ih0 = oh * stride - pad_top;
-                    int iw0 = ow * stride - pad_left;
-                    const float* in_ptr = input + (ic * in_h * in_w);
-                    const float* w_ptr = weight + ((oc * in_c + ic) * 9);
-                    for (int kh = 0; kh < 3; ++kh)
-                    {
-                        int ih = ih0 + kh;
-                        if (ih < 0 || ih >= in_h) continue;
-                        for (int kw = 0; kw < 3; ++kw)
-                        {
-                            int iw = iw0 + kw;
-                            if (iw < 0 || iw >= in_w) continue;
-                            float v = in_ptr[ih * in_w + iw];
-                            sum += v * w_ptr[kh * 3 + kw];
-                        }
-                    }
-                }
-                output[(oc * out_h + oh) * out_w + ow] = sum;
-            }
-        }
-    }
-}
-
-static void depthwise3x3_pack1(const float* input,
-                               const float* weight,
-                               float* output,
-                               int c,
-                               int in_h,
-                               int in_w,
-                               int out_h,
-                               int out_w,
-                               int stride,
-                               int pad_top,
-                               int pad_left,
-                               int pad_bottom,
-                               int pad_right)
-{
-    if (!input || !weight || !output)
-        return;
-    for (int ic = 0; ic < c; ++ic)
-    {
-        const float* in_base = input + (ic * in_h * in_w);
-        const float* w_ptr = weight + (ic * 9);
-        float* out_base = output + (ic * out_h * out_w);
-        for (int oh = 0; oh < out_h; ++oh)
-        {
-            for (int ow = 0; ow < out_w; ++ow)
-            {
-                float sum = 0.0f;
-                int ih0 = oh * stride - pad_top;
-                int iw0 = ow * stride - pad_left;
-                for (int kh = 0; kh < 3; ++kh)
-                {
-                    int ih = ih0 + kh;
-                    if (ih < 0 || ih >= in_h) continue;
-                    for (int kw = 0; kw < 3; ++kw)
-                    {
-                        int iw = iw0 + kw;
-                        if (iw < 0 || iw >= in_w) continue;
-                        float v = in_base[ih * in_w + iw];
-                        sum += v * w_ptr[kh * 3 + kw];
-                    }
-                }
-                out_base[oh * out_w + ow] = sum;
-            }
-        }
-    }
-}
-
-static void conv1x1_pack1(const float* input,
-                          const float* weight,
-                          float* output,
-                          int in_c,
-                          int in_h,
-                          int in_w,
-                          int out_c,
-                          int out_h,
-                          int out_w)
-{
-    if (!input || !weight || !output)
-        return;
-    for (int oc = 0; oc < out_c; ++oc)
-    {
-        const float* w_ptr = weight + oc * in_c;
-        float* out_base = output + oc * out_h * out_w;
-        for (int oh = 0; oh < out_h; ++oh)
-        {
-            for (int ow = 0; ow < out_w; ++ow)
-            {
-                float sum = 0.0f;
-                const float* in_ptr = input + (oh * in_w + ow);
-                for (int ic = 0; ic < in_c; ++ic)
-                {
-                    sum += in_ptr[ic * in_h * in_w] * w_ptr[ic];
-                }
-                out_base[oh * out_w + ow] = sum;
-            }
-        }
-    }
-}
 """
+    )
+    return "\n".join(sections)
 
 
 def generate_debug_helpers(dump_ir_tensor_data: bool = False, trace_operator_delay: bool = False) -> str:

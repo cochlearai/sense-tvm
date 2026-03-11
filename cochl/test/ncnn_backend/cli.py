@@ -30,7 +30,6 @@ from cochl.test.ncnn_backend.libgen import (  # noqa: E402
     collect_neon_sources,
     write_lib0_with_impl,
 )
-from cochl.test.ncnn_backend.wrappers import wrapper_source  # noqa: E402
 from tvm.cochl.framework.ncnn.codegen.codegen import emit_main_entry_from_plan, align_entries_with_plan  # noqa: E402
 from cochl.test.ncnn_backend.memory_plan import build_plan  # noqa: E402
 from cochl.test.ncnn_backend.pipeline import build_ir_mod  # noqa: E402
@@ -159,12 +158,12 @@ def main() -> int:
     # Wrapper stubs are always emitted; ensure their targets are linked.
     matched_symbols.update(
         {
-            "conv3x3s1_pack1to4_neon_standalone",
-            "conv3x3s2_pack1to4_neon_standalone",
+            "conv3x3s1_pack1to4_standalone",
+            "conv3x3s2_pack1to4_standalone",
             "conv3x3s2_neon_standalone",
-            "conv1x1s1_neon_standalone",
-            "convdw3x3s1_pack4_neon_standalone",
-            "convdw3x3s2_pack4_neon_standalone",
+            "conv1x1s1_standalone",
+            "convdw3x3s1_standalone",
+            "convdw3x3s2_standalone",
         }
     )
 
@@ -257,7 +256,7 @@ def main() -> int:
 
     # 6) Append wrappers + matched implementations
     sources = collect_neon_sources(matched_symbols)
-    write_lib0_with_impl(args.lib0, sources, wrapper_source(), matched_symbols)
+    write_lib0_with_impl(args.lib0, sources, matched_symbols)
 
     # 7) Build tvm_c memory plan and emit main entry using storage buffers
     lib_dir = args.output_dir / "lib"

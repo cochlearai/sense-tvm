@@ -65,13 +65,8 @@ int main()
     fill_random(kernel_buf, kernel_elems);
     fill_random(bias_buf, bias_elems);
 
-    MatMini bottom_s{w, h, cpack, 4, (size_t)w * h * 4, bottom_buf};
-    MatMini top_s{outw, outh, cpack, 4, (size_t)outw * outh * 4, top_buf_standalone};
-    MatMini kernel_s{9, 1, cpack, 4, (size_t)9, kernel_buf};
-    MatMini bias_s{cpack, 1, 1, 4, 0, bias_buf};
-
     convdw3x3s1_pack4_neon(bottom, top, kernel, bias, opt);
-    convdw3x3s1_pack4_neon_standalone(&bottom_s, &top_s, &kernel_s, &bias_s);
+    convdw3x3s1_standalone(bottom_buf, kernel_buf, bias_buf, top_buf_standalone, channels, h, w, channels, outh, outw);
 
     const int repeats = 100;
     double total_ms = 0.0;
@@ -93,7 +88,8 @@ int main()
     for (int i = 0; i < repeats; ++i)
     {
         auto t0 = std::chrono::high_resolution_clock::now();
-        convdw3x3s1_pack4_neon_standalone(&bottom_s, &top_s, &kernel_s, &bias_s);
+        convdw3x3s1_standalone(
+            bottom_buf, kernel_buf, bias_buf, top_buf_standalone, channels, h, w, channels, outh, outw);
         auto t1 = std::chrono::high_resolution_clock::now();
         double ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
         total_ms += ms;
@@ -130,10 +126,8 @@ int main()
     float* top2_buf_standalone = (float*)aligned_alloc(16, top2_elems * sizeof(float));
 
     ncnn::Mat top2(outw2, outh2, cpack, top2_buf, 16u, 4, 0);
-    MatMini top2_s{outw2, outh2, cpack, 4, (size_t)outw2 * outh2 * 4, top2_buf_standalone};
-
     convdw3x3s2_pack4_neon(bottom, top2, kernel, bias, opt);
-    convdw3x3s2_pack4_neon_standalone(&bottom_s, &top2_s, &kernel_s, &bias_s);
+    convdw3x3s2_standalone(bottom_buf, kernel_buf, bias_buf, top2_buf_standalone, channels, h, w, channels, outh2, outw2);
 
     total_ms = 0.0;
     min_ms = 1e30;
@@ -154,7 +148,8 @@ int main()
     for (int i = 0; i < repeats; ++i)
     {
         auto t0 = std::chrono::high_resolution_clock::now();
-        convdw3x3s2_pack4_neon_standalone(&bottom_s, &top2_s, &kernel_s, &bias_s);
+        convdw3x3s2_standalone(
+            bottom_buf, kernel_buf, bias_buf, top2_buf_standalone, channels, h, w, channels, outh2, outw2);
         auto t1 = std::chrono::high_resolution_clock::now();
         double ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
         total_ms += ms;
