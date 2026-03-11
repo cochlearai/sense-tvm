@@ -291,6 +291,7 @@ tvm_file_glob(GLOB_RECURSE COMPILER_SRCS
     src/relax/op/distributed/*.cc
     src/relax/testing/*.cc
     )
+include(cmake/cochl/Cochl.cmake)
 
 tvm_file_glob(GLOB CODEGEN_SRCS
   src/target/*.cc

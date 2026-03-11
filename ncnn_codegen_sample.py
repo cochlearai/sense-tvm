@@ -1302,7 +1302,7 @@ static void conv1x1_pack1(const float* input,
 #include <string.h>
 #include <chrono>
 #include <sys/stat.h>
-#include \"ncnn.h\"
+#include \"cochl/include/target/nchw/ncnn.h\"
 
 {proto_block}
 
@@ -1625,7 +1625,7 @@ def emit_main_entry(entry_path: Path, pattern_entries: Iterable[dict]) -> None:
 #include <string.h>
 #include <chrono>
 #include <sys/stat.h>
-#include \"ncnn.h\"
+#include \"cochl/include/target/nchw/ncnn.h\"
 
 {proto_block}
 
@@ -1839,7 +1839,7 @@ def _codegen_impl(
     """ncnn backend codegen entry (Sense pipeline)."""
     from tvm.cochl.framework.ncnn.kernel.op_packer import build_pattern_entries
     from tvm.cochl.framework.ncnn.kernel.weight_packer import NcnnWeightPacker
-    from tvm.cochl.framework.ncnn.codegen.sources import NCNN_HEADER, NCNN_TO_STANDALONE
+    from tvm.cochl.framework.ncnn.codegen.sources import NCNN_TO_STANDALONE
     from tvm.cochl.framework.ncnn.codegen.helpers import emit_metadata, unmatched_reason, as_pattern_entry
     from tvm.cochl.framework.ncnn.codegen.match import symbol_for_entry
     from tvm.cochl.framework.ncnn.codegen.libgen import build_call_extern_module, collect_neon_sources, write_lib0_with_impl
@@ -1990,8 +1990,6 @@ def _codegen_impl(
     # Append wrappers + matched implementations
     sources = collect_neon_sources(matched_symbols)
     write_lib0_with_impl(lib0_path, sources, wrapper_source(), matched_symbols)
-    if NCNN_HEADER.exists():
-        (lib_dir / "ncnn.h").write_bytes(NCNN_HEADER.read_bytes())
 
     # Patch lib0.c to remove TVM header dependencies for standalone build
     if lib0_path.exists():

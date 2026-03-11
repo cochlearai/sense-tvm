@@ -73,10 +73,10 @@ class DebugConfig:
 
     Attributes:
         dump_operator_outputs: Enable dumping per-operator outputs
-        measure_execution_time: Enable per-op timing trace
+        measure_operator_delay: Enable per-op timing trace
     """
     dump_operator_outputs: bool = False
-    measure_execution_time: bool = False
+    measure_operator_delay: bool = False
 
 
 @dataclass
@@ -139,7 +139,7 @@ class SenseConfig:
             },
             "debug": {
                 "dump_operator_outputs": self.debug.dump_operator_outputs,
-                "measure_execution_time": self.debug.measure_execution_time,
+                "measure_operator_delay": self.debug.measure_operator_delay,
             },
         }
 
@@ -169,7 +169,10 @@ class SenseConfig:
         debug_dict = config_dict.get("debug", {})
         debug = DebugConfig(
             dump_operator_outputs=debug_dict.get("dump_operator_outputs", False),
-            measure_execution_time=debug_dict.get("measure_execution_time", False),
+            measure_operator_delay=debug_dict.get(
+                "measure_operator_delay",
+                debug_dict.get("measure_execution_time", False),
+            ),
         )
 
         export_dict = config_dict.get("export", {})

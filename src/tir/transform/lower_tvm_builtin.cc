@@ -713,6 +713,56 @@ class BuiltinLower : public StmtExprMutator {
   Stmt AppendPendingFrees(Stmt body) {
     auto& frees = scope_.Current().pending_frees;
     if (frees.empty()) return body;
+    auto insert_before_tail_return = [&](auto&& self, Stmt stmt) -> std::pair<Stmt, bool> {
+      if (const auto* eval = stmt.as<EvaluateNode>()) {
+        if (const auto* call = eval->value.as<CallNode>();
+            call && call->op.same_as(builtin::ret())) {
+          ffi::Array<Stmt> stmts;
+          for (auto it = frees.rbegin(); it != frees.rend(); ++it) {
+            stmts.push_back(*it);
+          }
+          stmts.push_back(stmt);
+          return {SeqStmt::Flatten(stmts), true};
+        }
+        return {stmt, false};
+      }
+      if (const auto* seq = stmt.as<SeqStmtNode>()) {
+        if (seq->seq.empty()) {
+          return {stmt, false};
+        }
+        auto [new_tail, handled] = self(self, seq->seq.back());
+        if (!handled) {
+          return {stmt, false};
+        }
+        ffi::Array<Stmt> new_seq = seq->seq;
+        new_seq.Set(new_seq.size() - 1, new_tail);
+        return {SeqStmt(new_seq, seq->span), true};
+      }
+      if (const auto* attr = stmt.as<AttrStmtNode>()) {
+        auto [new_body, handled] = self(self, attr->body);
+        if (!handled) {
+          return {stmt, false};
+        }
+        return {AttrStmt(attr->node, attr->attr_key, attr->value, new_body, attr->span), true};
+      }
+      if (const auto* if_then_else = stmt.as<IfThenElseNode>()) {
+        auto [new_then, then_handled] = self(self, if_then_else->then_case);
+        if (!then_handled || !if_then_else->else_case.defined()) {
+          return {stmt, false};
+        }
+        auto [new_else, else_handled] = self(self, if_then_else->else_case.value());
+        if (!else_handled) {
+          return {stmt, false};
+        }
+        return {IfThenElse(if_then_else->condition, new_then, new_else, if_then_else->span), true};
+      }
+      return {stmt, false};
+    };
+    auto [body_with_frees, handled] = insert_before_tail_return(insert_before_tail_return, body);
+    if (handled) {
+      frees.clear();
+      return body_with_frees;
+    }
     ffi::Array<Stmt> stmts;
     stmts.push_back(body);
     for (auto it = frees.rbegin(); it != frees.rend(); ++it) {

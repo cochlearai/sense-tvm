@@ -17,6 +17,7 @@ def generate_mcu_header() -> str:
 #include <time.h>
 #include <math.h>
 #include <stdint.h>
+#include <sys/stat.h>
 
 /* Workspace management functions from lib0.c */
 extern int tvm_workspace_init(void);
@@ -162,15 +163,122 @@ def generate_debug_helper() -> str:
         str : C code for debug helper
     """
     return '''
+static FILE* open_debug_file(const char* path) {
+    static int initialized = 0;
+    if (!initialized) {
+        mkdir("debug", 0755);
+        initialized = 1;
+    }
+    return fopen(path, "a");
+}
+
+static void format_int_with_commas(int value, char* buf, size_t buf_size) {
+    char tmp[32];
+    int len;
+    int out = 0;
+    snprintf(tmp, sizeof(tmp), "%d", value);
+    len = (int)strlen(tmp);
+    for (int i = 0; i < len && (size_t)(out + 2) < buf_size; ++i) {
+        if (i > 0 && ((len - i) % 3) == 0) {
+            buf[out++] = ',';
+        }
+        buf[out++] = tmp[i];
+    }
+    buf[out] = '\\0';
+}
+
 #ifdef DEBUG_INTERMEDIATE
 static void dump_tensor_data(const char* name, float* data, int size, int max_elems) {
-    int to_print = (size < max_elems) ? size : max_elems;
-    printf("[%s] values=[", name);
-    for (int i = 0; i < to_print; i++) {
-        printf("%.6f%s", data[i], i < to_print - 1 ? "," : "");
+    FILE* f = open_debug_file("debug/op_tensor.txt");
+    char size_buf[32];
+    int to_print;
+    if (!f || !name || !data || size <= 0) {
+        if (f) fclose(f);
+        return;
     }
-    printf("%s]\\n", to_print < size ? "..." : "");
-    fflush(stdout);
+    to_print = (size < max_elems) ? size : max_elems;
+    format_int_with_commas(size, size_buf, sizeof(size_buf));
+    fprintf(f, "● %s\\n", name);
+    fprintf(f, "  └─ Size: %s\\n", size_buf);
+    fprintf(f, "  └─ Data: [ ");
+    for (int i = 0; i < to_print; i++) {
+        fprintf(f, "%7.4f%s", data[i], i < to_print - 1 ? ", " : "");
+    }
+    fprintf(f, "%s ]\\n\\n", to_print < size ? ", ..." : "");
+    fclose(f);
+}
+#endif
+
+#ifdef TRACE_OPERATOR_DELAY
+static double g_total_operator_delay_ms = 0.0;
+static int g_operator_delay_initialized = 0;
+
+static void finalize_operator_delay_trace(void) {
+    FILE* f = open_debug_file("debug/op_delay.txt");
+    if (!f || !g_operator_delay_initialized) {
+        if (f) fclose(f);
+        return;
+    }
+    fprintf(f, "-----------------------------------------------\\n");
+    fprintf(f, "%-18s | %9.2f ms\\n", "TOTAL", g_total_operator_delay_ms);
+    fclose(f);
+}
+
+static void trace_operator_delay(const char* name, clock_t start, clock_t end) {
+    FILE* f = open_debug_file("debug/op_delay.txt");
+    double elapsed_ms;
+    int blocks;
+    const char* colon;
+    const char* op_name;
+    char id_buf[32];
+    if (!f || !name) {
+        if (f) fclose(f);
+        return;
+    }
+    if (!g_operator_delay_initialized) {
+        fclose(f);
+        f = fopen("debug/op_delay.txt", "w");
+        if (!f) {
+            return;
+        }
+        fprintf(f, "ID    Operation      | Time (ms) | Visualization\\n");
+        fprintf(f, "-----------------------------------------------\\n");
+        fclose(f);
+        g_operator_delay_initialized = 1;
+        atexit(finalize_operator_delay_trace);
+        f = open_debug_file("debug/op_delay.txt");
+        if (!f) {
+            return;
+        }
+    }
+    elapsed_ms = ((double)(end - start)) / CLOCKS_PER_SEC * 1000.0;
+    g_total_operator_delay_ms += elapsed_ms;
+    blocks = (int)(elapsed_ms * 18.0);
+    if (elapsed_ms >= 0.05 && blocks == 0) {
+        blocks = 1;
+    }
+    colon = strchr(name, ':');
+    if (colon) {
+        size_t id_len = (size_t)(colon - name + 1);
+        if (id_len >= sizeof(id_buf)) {
+            id_len = sizeof(id_buf) - 1;
+        }
+        memcpy(id_buf, name, id_len);
+        id_buf[id_len] = '\\0';
+        op_name = colon + 1;
+        while (*op_name == ' ') {
+            ++op_name;
+        }
+    } else {
+        snprintf(id_buf, sizeof(id_buf), "%s", name);
+        op_name = "";
+    }
+    fprintf(f, "%-5s %-14s | %9.2f | ", id_buf, op_name, elapsed_ms);
+    for (int i = 0; i < blocks; ++i) {
+        fputs("■", f);
+    }
+    fputc('\\n', f);
+    fclose(f);
 }
 #endif
 
@@ -214,7 +322,7 @@ int main(int argc, char** argv) {{
 
     /* Load weights */
     printf("Loading weights...\\n");
-    if (load_weights("weights.bin") != 0) {{
+    if (load_weights("lib/weights.bin") != 0) {{
         fprintf(stderr, "Failed to load weights\\n");
         ret = 1;
         goto cleanup;

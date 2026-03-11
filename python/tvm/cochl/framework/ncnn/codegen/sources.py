@@ -2,6 +2,7 @@
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parents[6]
+NCNN_HEADER = _REPO_ROOT / "cochl/include/target/nchw/ncnn.h"
 
 NEON_SOURCES = {
     "conv3x3s2_neon_standalone": _REPO_ROOT / "cochl/src/target/neon/convolution_3x3.cc",

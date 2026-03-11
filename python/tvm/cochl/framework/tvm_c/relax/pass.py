@@ -1,7 +1,5 @@
-"""tvm_c-specific Relax optimization passes."""
-
 import tvm
-from tvm import relax, tir
+from tvm import cochl, relax, tir, s_tir
 
 from .transform import FusePadConv, FuseRelu6
 
@@ -32,7 +30,6 @@ def get_sense_main_passes():
         relax.transform.RemoveUnusedOutputs(),          # Final cleanup of unused outputs after VM lowering.
     ]
 
-
 def get_unpacked_passes():
     """Get TIR pipeline that splits host/device and uses unpacked API."""
 
@@ -41,21 +38,21 @@ def get_unpacked_passes():
         """Custom TIR pipeline using MakeUnpackedAPI for MCU targets."""
         _ = ctx
         passes = [
-            tir.transform.CanonicalizeLoop(),
-            tir.transform.LowerInitBlock(),
-            tir.transform.PlanAndUpdateBufferAllocationLocation(),
-            tir.transform.ConvertBlocksToOpaque(),
-            tir.transform.CompactBufferAllocation(),
-            tir.transform.LowerMatchBuffer(),
+            s_tir.transform.CanonicalizeLoop(),
+            s_tir.transform.LowerInitBlock(),
+            s_tir.transform.PlanAndUpdateBufferAllocationLocation(),
+            s_tir.transform.ConvertBlocksToOpaque(),
+            s_tir.transform.CompactBufferAllocation(),
+            s_tir.transform.LowerMatchBuffer(),
             tir.transform.Simplify(),
-            tir.transform.LowerOpaqueBlock(),
+            s_tir.transform.LowerOpaqueBlock(),
             tir.transform.FlattenBuffer(),
             tir.transform.NarrowDataType(32),
             tir.transform.Simplify(),
             tir.transform.RemoveNoOp(),
             tir.transform.AnnotateDeviceRegions(),
             tir.transform.SplitHostDevice(),
-            tir.transform.MakeUnpackedAPI(),  # Unpacked API for MCU
+            cochl.tir.transform.MakeUnpackedAPI(),  # Unpacked API for MCU
             tir.transform.LowerDeviceKernelLaunch(),
         ]
         return tvm.ir.transform.Sequential(passes)(mod)

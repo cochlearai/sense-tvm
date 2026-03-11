@@ -5,8 +5,8 @@ from pathlib import Path
 def generate_makefile(output_dir: Path, model_name: str, debug: dict | None = None, **kwargs) -> Path:
     debug = debug or {}
     extra_defs = []
-    if debug.get("trace_operation_delay", False):
-        extra_defs.append("-DTRACE_OPERATION_DELAY")
+    if debug.get("trace_operator_delay", False):
+        extra_defs.append("-DTRACE_OPERATOR_DELAY")
     if debug.get("dump_ir_tensor_data", False):
         extra_defs.append("-DDEBUG_INTERMEDIATE")
     extra_defs_str = " ".join(extra_defs)

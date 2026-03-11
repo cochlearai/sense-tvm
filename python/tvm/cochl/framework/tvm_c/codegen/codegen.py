@@ -38,9 +38,11 @@ def _codegen_impl(
         save_metadata: Whether to save metadata
         **kwargs:
             dump_ir_tensor_data (bool): Enable DEBUG_INTERMEDIATE code
+            trace_operator_delay (bool): Enable TRACE_OPERATOR_DELAY code
     """
     # Extract device-specific parameters from kwargs
     dump_ir_tensor_data = kwargs.get("dump_ir_tensor_data", False)
+    trace_operator_delay = kwargs.get("trace_operator_delay", False)
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -267,6 +269,11 @@ int {model_name}_inference(float* input, float* output) {{
 
                     code += f"    /* Reshape: {op.output_var} aliases {source_addr} */\n"
 
+                    if trace_operator_delay:
+                        code += "#ifdef TRACE_OPERATOR_DELAY\n"
+                        code += f'    trace_operator_delay("Op{i+1}: {op.func_name}", 0, 0);\n'
+                        code += "#endif\n"
+
                     # Debug dump (only if enabled)
                     if dump_ir_tensor_data:
                         if True:
@@ -352,7 +359,15 @@ int {model_name}_inference(float* input, float* output) {{
 
         # Direct function call - no FFI overhead
         args_str = ", ".join(arg_ptrs)
+        if trace_operator_delay:
+            code += "#ifdef TRACE_OPERATOR_DELAY\n"
+            code += f"    clock_t op_start_{i} = clock();\n"
+            code += "#endif\n"
         code += f"    {op.func_name}({args_str});\n"
+        if trace_operator_delay:
+            code += "#ifdef TRACE_OPERATOR_DELAY\n"
+            code += f'    trace_operator_delay("Op{i+1}: {op.func_name}", op_start_{i}, clock());\n'
+            code += "#endif\n"
 
         # Debug dump (only if enabled)
         if dump_ir_tensor_data:

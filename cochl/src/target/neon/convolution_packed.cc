@@ -532,7 +532,418 @@ static void convolution_transform_kernel_packed(const Mat& kernel, Mat& kernel_t
 }
 
 // convolution_packed body is included from a separate file to keep this unit manageable
-#include "cochl/src/target/neon/convolution_packed_body.inc"
+static void convolution_packed(const Mat& bottom_blob, Mat& top_blob, const Mat& weight_data_tm, const Mat& bias_data, int kernel_w, int kernel_h, int dilation_w, int dilation_h, int stride_w, int stride_h, int activation_type, const Mat& activation_params, const Option& opt)
+{
+    const int w = bottom_blob.w;
+    const int elempack = bottom_blob.elempack;
+    const int inch = bottom_blob.c * elempack;
+
+    const size_t N = bottom_blob.cstep * elempack;
+
+    const int outw = top_blob.w;
+    const int outh = top_blob.h;
+    const int out_elempack = top_blob.elempack;
+    const int outch = top_blob.c * out_elempack;
+
+    const size_t M = top_blob.cstep * out_elempack;
+
+    const int maxk = kernel_w * kernel_h;
+
+    // kernel offsets
+    std::vector<int> _space_ofs(maxk);
+    int* space_ofs = &_space_ofs[0];
+    {
+        int p1 = 0;
+        int p2 = 0;
+        int gap = w * dilation_h - kernel_w * dilation_w;
+        for (int i = 0; i < kernel_h; i++)
+        {
+            for (int j = 0; j < kernel_w; j++)
+            {
+                space_ofs[p1] = p2 * elempack;
+                p1++;
+                p2 += dilation_w;
+            }
+            p2 += gap;
+        }
+    }
+
+    const float* bias_data_ptr = bias_data;
+
+    int nn_outch = 0;
+    int remain_outch_start = 0;
+#if __ARM_NEON
+#if __aarch64__
+    nn_outch = (outch - remain_outch_start) / 8;
+    #pragma omp parallel for num_threads(opt.num_threads)
+    for (int pp = 0; pp < nn_outch; pp++)
+    {
+        const int p = remain_outch_start + pp * 8;
+
+        // shadowed variable for less openmp task args
+        const int elempack = bottom_blob.elempack;
+        const int inch = bottom_blob.c * elempack;
+        const int outw = top_blob.w;
+        const int outh = top_blob.h;
+        const int out_elempack = top_blob.elempack;
+
+        float* outptr = top_blob.channel(p / out_elempack);
+
+        for (int i = 0; i < outh; i++)
+        {
+            for (int j = 0; j < outw; j++)
+            {
+                float32x4_t _sum0 = vdupq_n_f32(0.f);
+                float32x4_t _sum1 = vdupq_n_f32(0.f);
+                float32x4_t _sum2 = vdupq_n_f32(0.f);
+                float32x4_t _sum3 = vdupq_n_f32(0.f);
+                float32x4_t _sum4 = vdupq_n_f32(0.f);
+                float32x4_t _sum5 = vdupq_n_f32(0.f);
+                float32x4_t _sum6 = vdupq_n_f32(0.f);
+                float32x4_t _sum7 = vdupq_n_f32(0.f);
+
+                if (bias_data_ptr)
+                {
+                    _sum0 = vld1q_f32(bias_data_ptr + p);
+                    _sum1 = vld1q_f32(bias_data_ptr + p + 4);
+                }
+
+                const float* kptr = weight_data_tm.channel(p / 8);
+
+                int q = 0;
+                for (; q + 7 < inch; q += 8)
+                {
+                    const float* r0 = bottom_blob.channel(q / elempack).row(i * stride_h) + j * stride_w * elempack;
+
+                    for (int k = 0; k < maxk; k++)
+                    {
+                        const int sok = space_ofs[k];
+                        float32x4_t _r0;
+                        float32x4_t _r1;
+                        if (elempack == 4)
+                        {
+                            _r0 = vld1q_f32(r0 + sok);
+                            _r1 = vld1q_f32(r0 + sok + N);
+                        }
+                        else
+                        {
+                            _r0 = float32x4_t();
+                            _r1 = float32x4_t();
+                            _r0 = vsetq_lane_f32(r0[sok], _r0, 0);
+                            _r0 = vsetq_lane_f32(r0[sok + N], _r0, 1);
+                            _r0 = vsetq_lane_f32(r0[sok + N * 2], _r0, 2);
+                            _r0 = vsetq_lane_f32(r0[sok + N * 3], _r0, 3);
+                            _r1 = vsetq_lane_f32(r0[sok + N * 4], _r1, 0);
+                            _r1 = vsetq_lane_f32(r0[sok + N * 5], _r1, 1);
+                            _r1 = vsetq_lane_f32(r0[sok + N * 6], _r1, 2);
+                            _r1 = vsetq_lane_f32(r0[sok + N * 7], _r1, 3);
+                        }
+
+                        float32x4_t _w0 = vld1q_f32(kptr);
+                        float32x4_t _w1 = vld1q_f32(kptr + 4);
+                        float32x4_t _w2 = vld1q_f32(kptr + 4 * 2);
+                        float32x4_t _w3 = vld1q_f32(kptr + 4 * 3);
+                        float32x4_t _w4 = vld1q_f32(kptr + 4 * 4);
+                        float32x4_t _w5 = vld1q_f32(kptr + 4 * 5);
+                        float32x4_t _w6 = vld1q_f32(kptr + 4 * 6);
+                        float32x4_t _w7 = vld1q_f32(kptr + 4 * 7);
+                        float32x4_t _w8 = vld1q_f32(kptr + 4 * 8);
+                        float32x4_t _w9 = vld1q_f32(kptr + 4 * 9);
+                        float32x4_t _wa = vld1q_f32(kptr + 4 * 10);
+                        float32x4_t _wb = vld1q_f32(kptr + 4 * 11);
+                        float32x4_t _wc = vld1q_f32(kptr + 4 * 12);
+                        float32x4_t _wd = vld1q_f32(kptr + 4 * 13);
+                        float32x4_t _we = vld1q_f32(kptr + 4 * 14);
+                        float32x4_t _wf = vld1q_f32(kptr + 4 * 15);
+                        _sum0 = vfmaq_laneq_f32(_sum0, _w0, _r0, 0);
+                        _sum1 = vfmaq_laneq_f32(_sum1, _w1, _r0, 0);
+                        _sum2 = vfmaq_laneq_f32(_sum2, _w2, _r0, 1);
+                        _sum3 = vfmaq_laneq_f32(_sum3, _w3, _r0, 1);
+                        _sum4 = vfmaq_laneq_f32(_sum4, _w4, _r0, 2);
+                        _sum5 = vfmaq_laneq_f32(_sum5, _w5, _r0, 2);
+                        _sum6 = vfmaq_laneq_f32(_sum6, _w6, _r0, 3);
+                        _sum7 = vfmaq_laneq_f32(_sum7, _w7, _r0, 3);
+                        _sum0 = vfmaq_laneq_f32(_sum0, _w8, _r1, 0);
+                        _sum1 = vfmaq_laneq_f32(_sum1, _w9, _r1, 0);
+                        _sum2 = vfmaq_laneq_f32(_sum2, _wa, _r1, 1);
+                        _sum3 = vfmaq_laneq_f32(_sum3, _wb, _r1, 1);
+                        _sum4 = vfmaq_laneq_f32(_sum4, _wc, _r1, 2);
+                        _sum5 = vfmaq_laneq_f32(_sum5, _wd, _r1, 2);
+                        _sum6 = vfmaq_laneq_f32(_sum6, _we, _r1, 3);
+                        _sum7 = vfmaq_laneq_f32(_sum7, _wf, _r1, 3);
+
+                        kptr += 64;
+                    }
+                }
+                for (; q + 3 < inch; q += 4)
+                {
+                    const float* r0 = bottom_blob.channel(q / elempack).row(i * stride_h) + j * stride_w * elempack;
+
+                    for (int k = 0; k < maxk; k++)
+                    {
+                        const int sok = space_ofs[k];
+                        float32x4_t _r0;
+                        if (elempack == 4)
+                        {
+                            _r0 = vld1q_f32(r0 + sok);
+                        }
+                        else
+                        {
+                            _r0 = float32x4_t();
+                            _r0 = vsetq_lane_f32(r0[sok], _r0, 0);
+                            _r0 = vsetq_lane_f32(r0[sok + N], _r0, 1);
+                            _r0 = vsetq_lane_f32(r0[sok + N * 2], _r0, 2);
+                            _r0 = vsetq_lane_f32(r0[sok + N * 3], _r0, 3);
+                        }
+
+                        float32x4_t _w0 = vld1q_f32(kptr);
+                        float32x4_t _w1 = vld1q_f32(kptr + 4);
+                        float32x4_t _w2 = vld1q_f32(kptr + 4 * 2);
+                        float32x4_t _w3 = vld1q_f32(kptr + 4 * 3);
+                        float32x4_t _w4 = vld1q_f32(kptr + 4 * 4);
+                        float32x4_t _w5 = vld1q_f32(kptr + 4 * 5);
+                        float32x4_t _w6 = vld1q_f32(kptr + 4 * 6);
+                        float32x4_t _w7 = vld1q_f32(kptr + 4 * 7);
+                        _sum0 = vfmaq_laneq_f32(_sum0, _w0, _r0, 0);
+                        _sum1 = vfmaq_laneq_f32(_sum1, _w1, _r0, 0);
+                        _sum2 = vfmaq_laneq_f32(_sum2, _w2, _r0, 1);
+                        _sum3 = vfmaq_laneq_f32(_sum3, _w3, _r0, 1);
+                        _sum4 = vfmaq_laneq_f32(_sum4, _w4, _r0, 2);
+                        _sum5 = vfmaq_laneq_f32(_sum5, _w5, _r0, 2);
+                        _sum6 = vfmaq_laneq_f32(_sum6, _w6, _r0, 3);
+                        _sum7 = vfmaq_laneq_f32(_sum7, _w7, _r0, 3);
+
+                        kptr += 32;
+                    }
+                }
+                for (; q + 1 < inch; q += 2)
+                {
+                    const float* r0 = bottom_blob.channel(q).row(i * stride_h) + j * stride_w;
+
+                    for (int k = 0; k < maxk; k++)
+                    {
+                        const int sok = space_ofs[k];
+                        float val0;
+                        float val1;
+                        val0 = r0[sok];
+                        val1 = r0[sok + N];
+
+                        float32x4_t _w0 = vld1q_f32(kptr);
+                        float32x4_t _w1 = vld1q_f32(kptr + 4);
+                        float32x4_t _w2 = vld1q_f32(kptr + 8);
+                        float32x4_t _w3 = vld1q_f32(kptr + 12);
+                        _sum0 = vfmaq_n_f32(_sum0, _w0, val0);
+                        _sum1 = vfmaq_n_f32(_sum1, _w1, val0);
+                        _sum2 = vfmaq_n_f32(_sum2, _w2, val1);
+                        _sum3 = vfmaq_n_f32(_sum3, _w3, val1);
+
+                        kptr += 16;
+                    }
+                }
+                for (; q < inch; q++)
+                {
+                    const float* r0 = bottom_blob.channel(q).row(i * stride_h) + j * stride_w;
+
+                    for (int k = 0; k < maxk; k++)
+                    {
+                        float32x4_t _val;
+                        _val = vdupq_n_f32(r0[space_ofs[k]]);
+
+                        float32x4_t _w0 = vld1q_f32(kptr);
+                        float32x4_t _w1 = vld1q_f32(kptr + 4);
+                        _sum0 = vfmaq_f32(_sum0, _w0, _val);
+                        _sum1 = vfmaq_f32(_sum1, _w1, _val);
+
+                        kptr += 8;
+                    }
+                }
+
+                _sum0 = vaddq_f32(_sum0, _sum2);
+                _sum1 = vaddq_f32(_sum1, _sum3);
+                _sum4 = vaddq_f32(_sum4, _sum6);
+                _sum5 = vaddq_f32(_sum5, _sum7);
+                _sum0 = vaddq_f32(_sum0, _sum4);
+                _sum1 = vaddq_f32(_sum1, _sum5);
+
+                _sum0 = activation_ps(_sum0, activation_type, activation_params);
+                _sum1 = activation_ps(_sum1, activation_type, activation_params);
+
+                if (out_elempack == 4)
+                {
+                    vst1q_f32(outptr, _sum0);
+                    vst1q_f32(outptr + M, _sum1);
+                    outptr += 4;
+                }
+                else
+                {
+                    outptr[0] = vgetq_lane_f32(_sum0, 0);
+                    outptr[M] = vgetq_lane_f32(_sum0, 1);
+                    outptr[M * 2] = vgetq_lane_f32(_sum0, 2);
+                    outptr[M * 3] = vgetq_lane_f32(_sum0, 3);
+                    outptr[M * 4] = vgetq_lane_f32(_sum1, 0);
+                    outptr[M * 5] = vgetq_lane_f32(_sum1, 1);
+                    outptr[M * 6] = vgetq_lane_f32(_sum1, 2);
+                    outptr[M * 7] = vgetq_lane_f32(_sum1, 3);
+                    outptr += 1;
+                }
+            }
+        }
+    }
+    remain_outch_start += nn_outch * 8;
+#endif
+    nn_outch = (outch - remain_outch_start) / 4;
+    #pragma omp parallel for num_threads(opt.num_threads)
+    for (int pp = 0; pp < nn_outch; pp++)
+    {
+        const int p = remain_outch_start + pp * 4;
+
+        const int elempack = bottom_blob.elempack;
+        const int inch = bottom_blob.c * elempack;
+        const int outw = top_blob.w;
+        const int outh = top_blob.h;
+        const int out_elempack = top_blob.elempack;
+
+        float* outptr = top_blob.channel(p / out_elempack);
+
+        for (int i = 0; i < outh; i++)
+        {
+            for (int j = 0; j < outw; j++)
+            {
+                float32x4_t _sum0 = vdupq_n_f32(0.f);
+                float32x4_t _sum1 = vdupq_n_f32(0.f);
+                float32x4_t _sum2 = vdupq_n_f32(0.f);
+                float32x4_t _sum3 = vdupq_n_f32(0.f);
+
+                if (bias_data_ptr)
+                {
+                    _sum0 = vld1q_f32(bias_data_ptr + p);
+                }
+
+                const float* kptr = weight_data_tm.channel(p / 4);
+
+                int q = 0;
+                for (; q + 3 < inch; q += 4)
+                {
+                    const float* r0 = bottom_blob.channel(q / elempack).row(i * stride_h) + j * stride_w * elempack;
+
+                    for (int k = 0; k < maxk; k++)
+                    {
+                        const int sok = space_ofs[k];
+                        float32x4_t _r0;
+                        if (elempack == 4)
+                        {
+                            _r0 = vld1q_f32(r0 + sok);
+                        }
+                        else
+                        {
+                            _r0 = float32x4_t();
+                            _r0 = vsetq_lane_f32(r0[sok], _r0, 0);
+                            _r0 = vsetq_lane_f32(r0[sok + N], _r0, 1);
+                            _r0 = vsetq_lane_f32(r0[sok + N * 2], _r0, 2);
+                            _r0 = vsetq_lane_f32(r0[sok + N * 3], _r0, 3);
+                        }
+
+                        float32x4_t _w0 = vld1q_f32(kptr);
+                        float32x4_t _w1 = vld1q_f32(kptr + 4);
+                        float32x4_t _w2 = vld1q_f32(kptr + 8);
+                        float32x4_t _w3 = vld1q_f32(kptr + 12);
+                        _sum0 = vfmaq_laneq_f32(_sum0, _w0, _r0, 0);
+                        _sum1 = vfmaq_laneq_f32(_sum1, _w1, _r0, 1);
+                        _sum2 = vfmaq_laneq_f32(_sum2, _w2, _r0, 2);
+                        _sum3 = vfmaq_laneq_f32(_sum3, _w3, _r0, 3);
+
+                        kptr += 16;
+                    }
+                }
+                for (; q + 1 < inch; q += 2)
+                {
+                    const float* r0 = bottom_blob.channel(q).row(i * stride_h) + j * stride_w;
+
+                    for (int k = 0; k < maxk; k++)
+                    {
+                        const int sok = space_ofs[k];
+                        float val0 = r0[sok];
+                        float val1 = r0[sok + N];
+
+                        float32x4_t _w0 = vld1q_f32(kptr);
+                        float32x4_t _w1 = vld1q_f32(kptr + 4);
+                        _sum0 = vfmaq_n_f32(_sum0, _w0, val0);
+                        _sum1 = vfmaq_n_f32(_sum1, _w1, val1);
+
+                        kptr += 8;
+                    }
+                }
+                for (; q < inch; q++)
+                {
+                    const float* r0 = bottom_blob.channel(q).row(i * stride_h) + j * stride_w;
+
+                    for (int k = 0; k < maxk; k++)
+                    {
+                        float32x4_t _val = vdupq_n_f32(r0[space_ofs[k]]);
+                        float32x4_t _w = vld1q_f32(kptr);
+                        _sum0 = vfmaq_f32(_sum0, _w, _val);
+                        kptr += 4;
+                    }
+                }
+
+                _sum0 = vaddq_f32(_sum0, _sum1);
+                _sum2 = vaddq_f32(_sum2, _sum3);
+                _sum0 = vaddq_f32(_sum0, _sum2);
+                _sum0 = activation_ps(_sum0, activation_type, activation_params);
+
+                if (out_elempack == 4)
+                {
+                    vst1q_f32(outptr, _sum0);
+                    outptr += 4;
+                }
+                else
+                {
+                    outptr[0] = vgetq_lane_f32(_sum0, 0);
+                    outptr[M] = vgetq_lane_f32(_sum0, 1);
+                    outptr[M * 2] = vgetq_lane_f32(_sum0, 2);
+                    outptr[M * 3] = vgetq_lane_f32(_sum0, 3);
+                    outptr += 1;
+                }
+            }
+        }
+    }
+    remain_outch_start += nn_outch * 4;
+#endif
+
+    for (int p = remain_outch_start; p < outch; p++)
+    {
+        float* outptr = top_blob.channel(p);
+
+        for (int i = 0; i < outh; i++)
+        {
+            for (int j = 0; j < outw; j++)
+            {
+                float sum = 0.f;
+
+                if (bias_data_ptr)
+                    sum = bias_data_ptr[p];
+
+                const float* kptr = weight_data_tm.channel(p);
+
+                for (int q = 0; q < inch; q++)
+                {
+                    const float* r0 = bottom_blob.channel(q).row(i * stride_h) + j * stride_w;
+
+                    for (int k = 0; k < maxk; k++)
+                    {
+                        sum += r0[space_ofs[k]] * kptr[k];
+                    }
+
+                    kptr += maxk;
+                }
+
+                outptr[j] = activation_ss(sum, activation_type, activation_params);
+            }
+
+            outptr += outw;
+        }
+    }
+}
 
 extern "C" int convolution_transform_kernel_packed_standalone(const MatMini* kernel,
                                                                MatMini* kernel_tm,

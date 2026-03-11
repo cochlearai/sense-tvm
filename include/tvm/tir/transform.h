@@ -142,6 +142,16 @@ TVM_DLL Pass ConvertSSA();
 TVM_DLL Pass MakePackedAPI();
 
 /*!
+ * \brief Transform the PrimFuncs in the module to a standard C-style unpacked API.
+ *
+ * This pass lowers a PrimFunc with explicit parameters into an externally visible
+ * function that returns an `int32` status code and uses unpacked arguments directly.
+ *
+ * \return The pass.
+ */
+TVM_DLL Pass MakeUnpackedAPI();
+
+/*!
  * \brief Remap the thread axis
  *
  *  This can be used to get equivalent program which uses

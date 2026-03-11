@@ -104,6 +104,8 @@ class Sense:
             model_name=self.sense_config.export.model_name,
             save_metadata=self.sense_config.export.save_weight_manifest,
             model_path=self.model_path,
+            dump_ir_tensor_data=self.sense_config.debug.dump_operator_outputs,
+            trace_operator_delay=self.sense_config.debug.measure_operator_delay,
         )
         makefile_generator = registry.get_makefile_generator(
             self.sense_config.build_option.backend
@@ -112,7 +114,7 @@ class Sense:
             output_dir=output_dir,
             model_name=self.sense_config.export.model_name,
             debug={
-                "trace_operation_delay": self.sense_config.debug.measure_execution_time,
+                "trace_operator_delay": self.sense_config.debug.measure_operator_delay,
                 "dump_ir_tensor_data": self.sense_config.debug.dump_operator_outputs,
             },
         )
@@ -140,6 +142,7 @@ class Sense:
         return (
             Path(self.sense_config.export.output_dir)
             / self.sense_config.hardware.device
+            / self.sense_config.build_option.backend
         )
 
     def _save_ir_mod(self) -> None:

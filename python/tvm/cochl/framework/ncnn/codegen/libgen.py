@@ -201,6 +201,23 @@ def collect_neon_sources(symbols: set[str]) -> list[Path]:
     return sources
 
 
+def _strip_source_preamble(lines: list[str]) -> list[str]:
+    start = 0
+    for idx, line in enumerate(lines):
+        stripped = line.strip()
+        if (
+            stripped.startswith("#include")
+            or stripped.startswith("//")
+            or stripped.startswith("/*")
+            or stripped.startswith("*")
+            or stripped == ""
+        ):
+            continue
+        start = idx
+        break
+    return lines[start:]
+
+
 def write_lib0_with_impl(
     lib0_path: Path, sources: list[Path], wrappers: str, symbols: set[str]
 ) -> None:
@@ -210,13 +227,21 @@ def write_lib0_with_impl(
         call_extern_src = lib0_path.read_text(encoding="utf-8", errors="ignore")
     parts = []
     parts.append("/* Generated lib0.c (call_extern + implementations) */\n")
-    parts.append('#include "cochl/include/target/nchw/ncnn.h"\n\n')
+    parts.append('#include <algorithm>\n')
+    parts.append('#include <cmath>\n')
+    parts.append('#include <cstddef>\n')
+    parts.append('#include <cstdlib>\n')
+    parts.append('#include <cstring>\n')
+    parts.append('#include <vector>\n')
+    parts.append('#include "ncnn.h"\n\n')
     parts.append(wrappers)
     # Skip TVM call_extern C output for standalone validation build.
     emitted_mat = False
     emitted_option = False
     for src in sources:
-        lines = src.read_text(encoding="utf-8", errors="ignore").splitlines()
+        lines = _strip_source_preamble(
+            src.read_text(encoding="utf-8", errors="ignore").splitlines()
+        )
         filtered_lines = []
         skip_mat = False
         skip_opt = False
@@ -251,6 +276,8 @@ def write_lib0_with_impl(
     text = text.replace("TVM_DLL ", "")
     filtered = []
     for line in text.splitlines():
+        if line.startswith('#include "cochl/include/target/nchw/ncnn.h"'):
+            continue
         if line.startswith('#include "tvm/') or line.startswith("#include <tvm/"):
             continue
         if line.startswith("int32_t "):

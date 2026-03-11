@@ -3,7 +3,6 @@
 
 def wrapper_source() -> str:
     return """// Generated wrappers for call_extern (safe no-op on null inputs)
-#include \"cochl/include/target/nchw/ncnn.h\"
 
 int cochl_wrap_conv3x3s1_pack1to4(const float* input,
                                   const float* weight,

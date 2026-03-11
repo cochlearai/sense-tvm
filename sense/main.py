@@ -95,7 +95,11 @@ def main():
     # Execute compilation pipeline
     sense.execute()
 
-    output_root = Path(config.export.output_dir) / config.hardware.device
+    output_root = (
+        Path(config.export.output_dir)
+        / config.hardware.device
+        / config.build_option.backend
+    )
     if output_root.exists():
         print("=" * 60)
         print("Generated Artifacts")
