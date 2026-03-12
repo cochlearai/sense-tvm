@@ -118,6 +118,11 @@ section "Install Sense Required Dependencies"
 (cd "$ROOT_DIR" && python -m pip install numpy psutil cloudpickle xgboost ml_dtypes onnxruntime)
 
 section "Completed"
-info "run:"
+info "export the runtime environment in your current shell:"
+info "export TVM_HOME=$ROOT_DIR"
+info "export TVM_LIBRARY_PATH=$BUILD_DIR"
+info "export PYTHONPATH=$ROOT_DIR/python"
+
+section "Run Sense"
 info "cd sense"
 info "python main.py --config=settings/rpi2.json --validate"
