@@ -15,51 +15,64 @@
 <!--- specific language governing permissions and limitations -->
 <!--- under the License. -->
 
-<img src=https://raw.githubusercontent.com/apache/tvm-site/main/images/logo/tvm-logo-small.png width=128/> Open Machine Learning Compiler Framework
+SENSE-TVM
 ==============================================
-[Documentation](https://tvm.apache.org/docs) |
-[Contributors](CONTRIBUTORS.md) |
-[Community](https://tvm.apache.org/community) |
-[Release Notes](NEWS.md)
+[PDF](https://cochl.atlassian.net/wiki/spaces/D/pages/1678344195/TVM+Research) |
+[UPSTREAM_PATCH](https://cochl.atlassian.net/wiki/spaces/D/pages/1755414532/TVM+UPSTREAM+Patch) |
+[DESIGN](https://cochl.atlassian.net/wiki/spaces/D/pages/1725792260/TVM+Based+Compiler) |
+[Release Notes](https://cochl.atlassian.net/wiki/spaces/D/pages/1755217941/SENSE-TVM+Release+Notes)
 
-Apache TVM is an open machine learning compilation framework,
-following the following principles:
+SENSE TVM is an End-toEnd Compiler (onnx, torch, tflite -> C)
 
-- Python-first development that enables quick customization of machine learning compiler pipelines.
-- Universal deployment to bring models into minimum deployable modules.
+- COCHL is Core    
+- SENSE is Interface for sense model
 
-License
--------
-TVM is licensed under the [Apache-2.0](LICENSE) license.
 
 Getting Started
 ---------------
-Check out the [TVM Documentation](https://tvm.apache.org/docs/) site for installation instructions, tutorials, examples, and more.
-The [Getting Started with TVM](https://tvm.apache.org/docs/get_started/overview.html) tutorial is a great
-place to start.
+```bash
+chmod +x build_sense.sh
+# LLVM 17 or LLVM 18 is required by build_sense.sh.
+export LLVM_CONFIG=/path/to/llvm-config-17 ./build_sense.sh
+cd sense
+python main.py --config=settings/rpi2.json --validate
+```
 
-Contribute to TVM
+`build_sense.sh` configures and builds TVM, installs the editable Python packages, and installs the Python dependencies
+
+Configure
 -----------------
-TVM adopts the Apache committer model. We aim to create an open-source project maintained and owned by the community.
-Check out the [Contributor Guide](https://tvm.apache.org/docs/contribute/).
+The `sense/settings/{target}.json` file controls model input, target hardware, backend selection, artifact export, and debug behavior for the SENSE pipeline.
 
-History and Acknowledgement
----------------------------
-TVM started as a research project for deep learning compilation.
-The first version of the project benefited a lot from the following projects:
+Example:
+```json
+{
+  "model_path": "onnx/model_main_17.onnx",  // model_path
+  "hardware": "rpi2",                       // set architrecture by hardware
+  "build_option": {                         
+    "backend": "ncnn",                      // select export acclerate backend
+    "opt_level": 3,                         // select optimize pass level 
+    "target_str": null                      // compile flag ( later use )
+  },
+  "optimizer": {
+    "custom_passes": []                     // ( later use )
+  },
+  "export": {
+    "output_dir": "./bin",                  
+    "model_name": "sense_model_main",       // generated filename ( ex: sense_model_main.c)
+    "save_tir": true,                       // save tir text
+    "save_weight_manifest": true            // save weight flow
+  },
+  "debug": {
+    "dump_operator_outputs": false,         // add trace tensor logic to codegen 
+    "measure_operator_delay": false         // add measure oepration delay logic to codegen
+  }
+}
+```
 
-- [Halide](https://github.com/halide/Halide): Part of TVM's TIR and arithmetic simplification module
- originates from Halide. We also learned and adapted some parts of the lowering pipeline from Halide.
-- [Loopy](https://github.com/inducer/loopy): use of integer set analysis and its loop transformation primitives.
-- [Theano](https://github.com/Theano/Theano): the design inspiration of symbolic scan operator for recurrence.
 
-Since then, the project has gone through several rounds of redesigns.
-The current design is also drastically different from the initial design, following the
-development trend of the ML compiler community.
 
-The most recent version focuses on a cross-level design with TensorIR as the tensor-level representation
-and Relax as the graph-level representation and Python-first transformations.
-The project's current design goal is to make the ML compiler accessible by enabling most
-transformations to be customizable in Python and bringing a cross-level representation that can jointly
-optimize computational graphs, tensor programs, and libraries. The project is also a foundation
-infra for building Python-first vertical compilers for domains, such as LLMs.
+Reference
+==============================================
+[Ansor](https://github.com/cochlearai/Ansor) : partition tile based on metschedule
+[TVM-Standalone](https://github.com/cochlearai/tvm_standalone_sample) : sample file generated by sense-tvm
