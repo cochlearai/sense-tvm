@@ -17,17 +17,17 @@
 
 # SENSE-TVM
 
-[PDF](https://cochl.atlassian.net/wiki/spaces/D/pages/1678344195/TVM+Research) |
-[UPSTREAM_PATCH](https://cochl.atlassian.net/wiki/spaces/D/pages/1755414532/TVM+UPSTREAM+Patch) |
+[TVM PATCH](https://cochl.atlassian.net/wiki/spaces/D/pages/1755414532/TVM+UPSTREAM+Patch) |
 [DESIGN](https://cochl.atlassian.net/wiki/spaces/D/pages/1725792260/TVM+Based+Compiler) |
-[Release Notes](https://cochl.atlassian.net/wiki/spaces/D/pages/1755217941/SENSE-TVM+Release+Notes)
+[Release Notes](https://cochl.atlassian.net/wiki/spaces/D/pages/1755217941/SENSE-TVM+Release+Notes) |
+[PDF](https://cochl.atlassian.net/wiki/spaces/D/pages/1678344195/TVM+Research) |
 
 SENSE-TVM is an end-to-end compiler pipeline for converting models such as ONNX, Torch, and TFLite into C-oriented deployable outputs.
 
 ## Components
 
-- [COCHL](python/tvm/cochl/README.md): Core compiler implementation
-- [SENSE](sense/README.md): Interface and execution flow for SENSE models
+- [COCHL](python/tvm/cochl/README.md) Core compiler implementation
+- [SENSE](sense/README.md) Interface and execution flow for SENSE models
 
 ## Getting Started
 
