@@ -42,7 +42,7 @@ LLVM_CONFIG="${LLVM_CONFIG:-}"
 ORIG_DYLD_LIBRARY_PATH="${DYLD_LIBRARY_PATH:-}"
 
 if [ -z "$LLVM_CONFIG" ]; then
-  for candidate in llvm-config-17 llvm-config-18; do
+  for candidate in llvm-config-17 llvm-config-18 llvm-config-19; do
     if command -v "$candidate" >/dev/null 2>&1; then
       LLVM_CONFIG=$candidate
       break
@@ -52,14 +52,15 @@ fi
 
 if [ -z "$LLVM_CONFIG" ] || ! command -v "$LLVM_CONFIG" >/dev/null 2>&1; then
   cat <<'EOF'
-llvm-config-17 or llvm-config-18 was not found in PATH.
-This build_sense.sh is pinned to LLVM 17/18 for compatibility.
+llvm-config-17, llvm-config-18, or llvm-config-19 was not found in PATH.
+This build_sense.sh is pinned to LLVM 17/18/19 for compatibility.
 
-Install LLVM 17 or LLVM 18 first, or point LLVM_CONFIG to a matching binary.
+Install LLVM 17, LLVM 18, or LLVM 19 first, or point LLVM_CONFIG to a matching binary.
 
 Example:
   LLVM_CONFIG=/path/to/llvm-config-17 ./build_sense.sh
   LLVM_CONFIG=/path/to/llvm-config-18 ./build_sense.sh
+  LLVM_CONFIG=/path/to/llvm-config-19 ./build_sense.sh
 
 EOF
   exit 1
