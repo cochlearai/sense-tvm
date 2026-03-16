@@ -16,13 +16,13 @@ The image above can be understood as a layer-by-layer compiler flow inside `pyth
 - `framework / ncnn`: Keeps the graph at a pattern-friendly level and maps it to external standalone kernels.
 - `framework / tvm_c`: Lowers the graph further through TVM build flow and emits TVM-C style standalone code.
 - `kernel`: Selects which kernel implementation or operator form should be used.
-- `codegen`: Writes the final standalone source files, metadata, weights, and build files.
+- `codegen`: Writes the standalone source files, metadata, weights, and build files.
 
 ### `core / translate`
 
 This is the input adaptation layer.
 
-- Role: convert models from front-end formats such as ONNX into a common Relax IR.
+- Role: convert models from front-end formats such as Frontend(ONNX, TORCH, TFLITE) into a common Relax IR.
 - Output: Relax IR, input and output tensor metadata, and ordered weights.
 - Meaning in the flow: this layer hides front-end differences and gives the rest of COCHL a unified compiler input.
 

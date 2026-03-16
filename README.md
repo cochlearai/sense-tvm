@@ -37,8 +37,10 @@ Build TVM first, then run the SENSE pipeline with a target configuration.
 chmod +x build_sense.sh
 
 # LLVM 17,18,19 && python <= 3.13 is stable on tvm
-# ex) LLVM_CONFIG=/opt/homebrew/opt/llvm@19/bin/llvm-config ./build_sense.sh  
-LLVM_CONFIG=/path/to/llvm-config-17 ./build_sense.sh
+# ex) JOBS=1 LLVM_CONFIG=/opt/homebrew/opt/llvm@19/bin/llvm-config ./build_sense.sh  
+
+# build first time , JOBS(parallel) 1 is stable 
+JOBS=1 LLVM_CONFIG=/path/to/llvm-config-17 ./build_sense.sh
 
 cd sense
 python main.py --config=settings/rpi2.json --validate
